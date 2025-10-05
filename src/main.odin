@@ -90,7 +90,7 @@ main :: proc() {
         gl.ClearColor(0.3, 0.4, 0.5, 1.0)
         gl.Clear(gl.COLOR_BUFFER_BIT)
 
-        gl.DrawElements(gl.TRIANGLES, size_of(squareVertIndices), gl.UNSIGNED_INT, nil)
+        gl.DrawElements(gl.TRIANGLES, len(squareVertIndices), gl.UNSIGNED_INT, nil)
 
         glfw.SwapBuffers(window)
         glfw.PollEvents()

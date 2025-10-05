@@ -78,6 +78,9 @@ main :: proc() {
     gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 3 * size_of(f32), 0);
     gl.EnableVertexAttribArray(0)
 
+    // uncomment for wireframe rendering
+//     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+
     for !glfw.WindowShouldClose(window) {
         if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
             glfw.SetWindowShouldClose(window, true)

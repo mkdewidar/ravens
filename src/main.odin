@@ -72,6 +72,7 @@ main :: proc() {
     gl.BufferData(gl.ARRAY_BUFFER, size_of(squareVerts), &squareVerts, gl.STATIC_DRAW)
     elementBufferObject: u32
     gl.GenBuffers(1, &elementBufferObject)
+    defer gl.DeleteBuffers(1, &elementBufferObject)
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBufferObject)
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(squareVertIndices), &squareVertIndices, gl.STATIC_DRAW)
 

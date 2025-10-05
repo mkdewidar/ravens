@@ -50,10 +50,18 @@ main :: proc() {
     defer gl.DeleteVertexArrays(1, &vertexArrayObject)
     gl.BindVertexArray(vertexArrayObject)
 
-    triangleVerts := [?]f32{
-        -0.5, -0.5, 0,
+    // these are just the standalone verts, we use a element buffer object to tell OpenGL how to draw
+    // triangles out of them
+    squareVerts := [?]f32{
+        0.5, 0.5, 0,
         0.5, -0.5, 0,
-        0, 0.5, 0
+        -0.5, -0.5, 0,
+        -0.5, 0.5, 0
+    }
+    // these index into the verts mentioned above, telling OpenGL how to make triangles out of those vertices
+    squareVertIndices := [?]u32{
+        0, 1, 3,
+        1, 2, 3
     }
     // not to be confused with "vertex array object", this object contains the actual vertices, but doesn't
     // describe how they are mapped to the input variables in the vertex shader.
@@ -61,7 +69,11 @@ main :: proc() {
     gl.GenBuffers(1, &vertexBufferObject)
     defer gl.DeleteBuffers(1, &vertexBufferObject)
     gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
-    gl.BufferData(gl.ARRAY_BUFFER, size_of(triangleVerts), &triangleVerts, gl.STATIC_DRAW)
+    gl.BufferData(gl.ARRAY_BUFFER, size_of(squareVerts), &squareVerts, gl.STATIC_DRAW)
+    elementBufferObject: u32
+    gl.GenBuffers(1, &elementBufferObject)
+    gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBufferObject)
+    gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(squareVertIndices), &squareVertIndices, gl.STATIC_DRAW)
 
     gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 3 * size_of(f32), 0);
     gl.EnableVertexAttribArray(0)
@@ -74,7 +86,7 @@ main :: proc() {
         gl.ClearColor(0.3, 0.4, 0.5, 1.0)
         gl.Clear(gl.COLOR_BUFFER_BIT)
 
-        gl.DrawArrays(gl.TRIANGLES, 0, 3)
+        gl.DrawElements(gl.TRIANGLES, size_of(squareVertIndices), gl.UNSIGNED_INT, nil)
 
         glfw.SwapBuffers(window)
         glfw.PollEvents()

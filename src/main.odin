@@ -2,7 +2,6 @@ package main
 
 import "base:runtime"
 import "core:fmt"
-
 import "core:c"
 
 import "vendor:glfw"
@@ -39,6 +38,34 @@ main :: proc() {
 
     glfw.SetFramebufferSizeCallback(window, framebuffer_size_callback)
 
+    // yet another fantastic helper function for loading, compiling, and attaching shaders to this OpenGL program
+    glProgram := gl.load_shaders("shaders/shader.vert", "shaders/shader.frag") or_else panic("Failed to load and compile shaders")
+    defer gl.DeleteProgram(glProgram)
+    gl.UseProgram(glProgram)
+
+    // not to be confused with "vertex buffer object", this is a container telling OpenGL how to map
+    // "vertex buffer objects" onto the inputs of the vertex shader, but doesn't actually store the data itself.
+    vertexArrayObject: u32
+    gl.GenVertexArrays(1, &vertexArrayObject)
+    defer gl.DeleteVertexArrays(1, &vertexArrayObject)
+    gl.BindVertexArray(vertexArrayObject)
+
+    triangleVerts := [?]f32{
+        -0.5, -0.5, 0,
+        0.5, -0.5, 0,
+        0, 0.5, 0
+    }
+    // not to be confused with "vertex array object", this object contains the actual vertices, but doesn't
+    // describe how they are mapped to the input variables in the vertex shader.
+    vertexBufferObject: u32
+    gl.GenBuffers(1, &vertexBufferObject)
+    defer gl.DeleteBuffers(1, &vertexBufferObject)
+    gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
+    gl.BufferData(gl.ARRAY_BUFFER, size_of(triangleVerts), &triangleVerts, gl.STATIC_DRAW)
+
+    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 3 * size_of(f32), 0);
+    gl.EnableVertexAttribArray(0)
+
     for !glfw.WindowShouldClose(window) {
         if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
             glfw.SetWindowShouldClose(window, true)
@@ -46,6 +73,8 @@ main :: proc() {
 
         gl.ClearColor(0.3, 0.4, 0.5, 1.0)
         gl.Clear(gl.COLOR_BUFFER_BIT)
+
+        gl.DrawArrays(gl.TRIANGLES, 0, 3)
 
         glfw.SwapBuffers(window)
         glfw.PollEvents()

@@ -6,6 +6,7 @@ import "core:c"
 
 import "vendor:glfw"
 import gl "vendor:OpenGL"
+import stb "vendor:stb/image"
 
 OPENGL_MAJOR_VERSION :: 4
 OPENGL_MINOR_VERSION :: 1
@@ -50,14 +51,33 @@ main :: proc() {
     defer gl.DeleteVertexArrays(1, &vertexArrayObject)
     gl.BindVertexArray(vertexArrayObject)
 
-    // these are just the standalone verts, we use a element buffer object to tell OpenGL how to draw
+    textureWidth, textureHeight, textureChannelCount: c.int
+    textureBytes := stb.load("assets/container-texture.jpg", &textureWidth, &textureHeight, &textureChannelCount, 0)
+    if textureBytes == nil {
+        panic(fmt.tprintf("Failed to load texture %s", stb.failure_reason()))
+    }
+    defer stb.image_free(textureBytes)
+    glTexture: u32
+    gl.GenTextures(1, &glTexture)
+    defer gl.DeleteTextures(1, &glTexture)
+    gl.BindTexture(gl.TEXTURE_2D, glTexture)
+    // how opengl should handle going out of bounds on the texture's 0 - 1.0 coordinates
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+    // how opengl should sample the texture
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, textureWidth, textureHeight, 0, gl.RGB, gl.UNSIGNED_BYTE, textureBytes)
+    gl.GenerateMipmap(gl.TEXTURE_2D)
+
+    // these are just the standalone vert positions, we use an element buffer object to tell OpenGL how to draw
     // triangles out of them
-    squareVertsAndColors := [?]f32{
-        // positions      // colors
-        0.5, 0.5, 0,       1, 0, 0,
-        0.5, -0.5, 0,      0, 1, 0,
-        -0.5, -0.5, 0,     0, 0, 1,
-        -0.5, 0.5, 0,      0, 0, 0
+    squareData := [?]f32{
+        // positions      // colors       // texture coords
+        0.5, 0.5, 0,       1, 0, 0,       1, 1,
+        0.5, -0.5, 0,      0, 1, 0,       1, 0,
+        -0.5, -0.5, 0,     0, 0, 1,       0, 0,
+        -0.5, 0.5, 0,      1, 1, 0,       0, 1,
     }
     // these index into the verts mentioned above, telling OpenGL how to make triangles out of those vertices
     squareVertIndices := [?]u32{
@@ -70,17 +90,19 @@ main :: proc() {
     gl.GenBuffers(1, &vertexBufferObject)
     defer gl.DeleteBuffers(1, &vertexBufferObject)
     gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
-    gl.BufferData(gl.ARRAY_BUFFER, size_of(squareVertsAndColors), &squareVertsAndColors, gl.STATIC_DRAW)
+    gl.BufferData(gl.ARRAY_BUFFER, size_of(squareData), &squareData, gl.STATIC_DRAW)
     elementBufferObject: u32
     gl.GenBuffers(1, &elementBufferObject)
     defer gl.DeleteBuffers(1, &elementBufferObject)
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBufferObject)
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(squareVertIndices), &squareVertIndices, gl.STATIC_DRAW)
 
-    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 6 * size_of(f32), 0);
+    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0);
     gl.EnableVertexAttribArray(0)
-    gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 6 * size_of(f32), 3 * size_of(f32));
+    gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32));
     gl.EnableVertexAttribArray(1)
+    gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32));
+    gl.EnableVertexAttribArray(2)
 
     // uncomment for wireframe rendering
 //     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)

@@ -156,12 +156,13 @@ main :: proc() {
     gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
     gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
 
+    // this gets rewritten for each thing we draw
     modelMatrix := linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0})
     gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
     viewMatrix := linalg.matrix4_translate_f32({0, 0, -3})
     gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "view"), 1, false, raw_data(&viewMatrix))
-    perspectiveMatrix := linalg.matrix4_perspective_f32(linalg.to_radians(f32(45)), 640 / 480, 0.1, 100)
-    gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "perspective"), 1, false, raw_data(&perspectiveMatrix))
+    projectionMatrix := linalg.matrix4_perspective_f32(linalg.to_radians(f32(45)), 640 / 480, 0.1, 100)
+    gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "projection"), 1, false, raw_data(&projectionMatrix))
 
     // uncomment for wireframe rendering
 //     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
@@ -188,10 +189,11 @@ main :: proc() {
 
         // now we draw the square
         gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
-        transformMatrix :=
+        modelMatrix =
+            linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
             linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
             linalg.matrix4_translate_f32({0, 0.5, 0})
-        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "transform"), 1, false, raw_data(&transformMatrix))
+        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
         gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
         gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
         gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
@@ -199,8 +201,10 @@ main :: proc() {
 
         // now we draw the cube
         gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
-        transformMatrix = linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0})
-        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "transform"), 1, false, raw_data(&transformMatrix))
+        modelMatrix =
+            linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
+            linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0})
+        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
         // we must redo this so it points to the new buffer
         gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
         gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))

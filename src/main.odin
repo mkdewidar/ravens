@@ -99,12 +99,19 @@ main :: proc() {
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBufferObject)
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(squareVertIndices), &squareVertIndices, gl.STATIC_DRAW)
 
-    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0);
+    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
     gl.EnableVertexAttribArray(0)
-    gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32));
+    gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
     gl.EnableVertexAttribArray(1)
-    gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32));
+    gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
     gl.EnableVertexAttribArray(2)
+
+    modelMatrix := linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0})
+    gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
+    viewMatrix := linalg.matrix4_translate_f32({0, 0, -3})
+    gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "view"), 1, false, raw_data(&viewMatrix))
+    perspectiveMatrix := linalg.matrix4_perspective_f32(linalg.to_radians(f32(45)), 640 / 480, 0.1, 100)
+    gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "perspective"), 1, false, raw_data(&perspectiveMatrix))
 
     // uncomment for wireframe rendering
 //     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
@@ -123,7 +130,6 @@ main :: proc() {
         transformMatrix :=
             linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 10), {0, 0, 1}) *
             linalg.matrix4_translate_f32({0, 0.5, 0})
-        transformData := intrinsics.matrix_flatten(transformMatrix)
         gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "transform"), 1, false, raw_data(&transformMatrix))
 
         gl.DrawElements(gl.TRIANGLES, len(squareVertIndices), gl.UNSIGNED_INT, nil)

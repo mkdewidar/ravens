@@ -7,10 +7,13 @@ layout(location = 2) in vec2 tex;
 out vec3 vertColor;
 out vec2 texCoordinates;
 
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 perspective;
 uniform mat4 transform;
 
 void main() {
-    gl_Position = transform * vec4(pos.xyz, 1.0);
+    gl_Position = perspective * view * model * transform * vec4(pos.xyz, 1.0);
     vertColor = color;
     texCoordinates = tex;
 }

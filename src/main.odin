@@ -106,6 +106,56 @@ main :: proc() {
     gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
     gl.EnableVertexAttribArray(2)
 
+    cubeData := [?]f32{
+        // positions        // colors   // texture coords
+        -0.5, -0.5, -0.5,   1, 1, 1,   0, 0,
+        0.5, -0.5, -0.5,    1, 1, 1,   1, 0,
+        0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
+        0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
+        -0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
+        -0.5, -0.5, -0.5,   1, 1, 1,   0, 0,
+
+        -0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+        0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
+        0.5,  0.5,  0.5,    1, 1, 1,   1, 1,
+        0.5,  0.5,  0.5,    1, 1, 1,   1, 1,
+        -0.5,  0.5,  0.5,   1, 1, 1,   0, 1,
+        -0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+
+        -0.5,  0.5,  0.5,   1, 1, 1,   1, 0,
+        -0.5,  0.5, -0.5,   1, 1, 1,   1, 1,
+        -0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+        -0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+        -0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+        -0.5,  0.5,  0.5,   1, 1, 1,   1, 0,
+
+        0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+        0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
+        0.5, -0.5, -0.5,    1, 1, 1,   0, 1,
+        0.5, -0.5, -0.5,    1, 1, 1,   0, 1,
+        0.5, -0.5,  0.5,    1, 1, 1,   0, 0,
+        0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+
+        -0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+        0.5, -0.5, -0.5,    1, 1, 1,   1, 1,
+        0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
+        0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
+        -0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+        -0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+
+        -0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
+        0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
+        0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+        0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+        -0.5,  0.5,  0.5,   1, 1, 1,   0, 0,
+        -0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
+    }
+    cubeVertexBufferObject: u32
+    gl.GenBuffers(1, &cubeVertexBufferObject)
+    defer gl.DeleteBuffers(1, &cubeVertexBufferObject)
+    gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
+    gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
+
     modelMatrix := linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0})
     gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
     viewMatrix := linalg.matrix4_translate_f32({0, 0, -3})
@@ -116,23 +166,46 @@ main :: proc() {
     // uncomment for wireframe rendering
 //     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 
+    // we enable the vertex shader attributes
+    // actually configuring them to point to the buffers is done in the render loop
+    gl.EnableVertexAttribArray(0)
+    gl.EnableVertexAttribArray(1)
+    gl.EnableVertexAttribArray(2)
+
+    gl.Enable(gl.DEPTH_TEST)
+
     for !glfw.WindowShouldClose(window) {
         if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
             glfw.SetWindowShouldClose(window, true)
         }
 
         gl.ClearColor(0.3, 0.4, 0.5, 1.0)
-        gl.Clear(gl.COLOR_BUFFER_BIT)
+        gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
         // using time as a source for the angle allows it to simulate a frame rate independent rotation
         // in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
         // doing the operations in this order results in a neat rotate around a point effect
+
+        // now we draw the square
+        gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
         transformMatrix :=
-            linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 10), {0, 0, 1}) *
+            linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
             linalg.matrix4_translate_f32({0, 0.5, 0})
         gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "transform"), 1, false, raw_data(&transformMatrix))
-
+        gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
+        gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
+        gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
         gl.DrawElements(gl.TRIANGLES, len(squareVertIndices), gl.UNSIGNED_INT, nil)
+
+        // now we draw the cube
+        gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
+        transformMatrix = linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0})
+        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "transform"), 1, false, raw_data(&transformMatrix))
+        // we must redo this so it points to the new buffer
+        gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
+        gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
+        gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
+        gl.DrawArrays(gl.TRIANGLES, 0, 36)
 
         glfw.SwapBuffers(window)
         glfw.PollEvents()

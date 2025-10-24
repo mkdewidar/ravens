@@ -13,6 +13,15 @@ import "core:math/linalg"
 OPENGL_MAJOR_VERSION :: 4
 OPENGL_MINOR_VERSION :: 1
 
+// the camera's location in the world
+CameraPos : [3]f32 = {0, -3, 0}
+// the camera's "up" vector in the world
+CameraUp : [3]f32 = {0, 0, -1}
+// a vector pointing "forward" from the camera
+CameraFront : [3]f32 = {0, 1, 0}
+// speed of the camera defined as a multiple of CameraFront
+CAMERA_SPEED :: 0.05
+
 main :: proc() {
     glfw.SetErrorCallback(error_callback)
 
@@ -156,11 +165,6 @@ main :: proc() {
     gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
     gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
 
-    // this gets rewritten for each thing we draw
-    modelMatrix := linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0})
-    gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
-    viewMatrix := linalg.matrix4_translate_f32({0, 0, -3})
-    gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "view"), 1, false, raw_data(&viewMatrix))
     projectionMatrix := linalg.matrix4_perspective_f32(linalg.to_radians(f32(45)), 640 / 480, 0.1, 100)
     gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "projection"), 1, false, raw_data(&projectionMatrix))
 
@@ -179,9 +183,28 @@ main :: proc() {
         if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
             glfw.SetWindowShouldClose(window, true)
         }
+        if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
+            CameraPos += (CAMERA_SPEED * CameraFront)
+        }
+        if glfw.GetKey(window, glfw.KEY_A) == glfw.PRESS {
+            // cross product gives us the third axis (horizontal), and we normalise to ensure
+            // the speed is always a multiple of the same length vector
+            CameraPos -= linalg.normalize(linalg.vector_cross3(CameraFront, CameraUp)) * CAMERA_SPEED
+        }
+        if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
+            CameraPos -= (CAMERA_SPEED * CameraFront)
+        }
+        if glfw.GetKey(window, glfw.KEY_D) == glfw.PRESS {
+            // cross product gives us the third axis (horizontal), and we normalise to ensure
+            // the speed is always a multiple of the same length vector
+            CameraPos += linalg.normalize(linalg.vector_cross3(CameraFront, CameraUp)) * CAMERA_SPEED
+        }
 
         gl.ClearColor(0.3, 0.4, 0.5, 1.0)
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+        viewMatrix := linalg.matrix4_look_at_f32(CameraPos, CameraPos + CameraFront, CameraUp)
+        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "view"), 1, false, raw_data(&viewMatrix))
 
         // using time as a source for the angle allows it to simulate a frame rate independent rotation
         // in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
@@ -189,10 +212,10 @@ main :: proc() {
 
         // now we draw the square
         gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
-        modelMatrix =
+        modelMatrix :=
             linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
             linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
-            linalg.matrix4_translate_f32({0, 0.5, 0})
+            linalg.matrix4_translate_f32({0, 1.5, 0})
         gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
         gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
         gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))

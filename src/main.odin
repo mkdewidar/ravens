@@ -1,259 +1,348 @@
 package main
 
 import "base:runtime"
-import "base:intrinsics"
-import "core:fmt"
 import "core:c"
+import "core:fmt"
 
-import "vendor:glfw"
-import gl "vendor:OpenGL"
-import stb "vendor:stb/image"
 import "core:math/linalg"
+import gl "vendor:OpenGL"
+import "vendor:glfw"
+import stb "vendor:stb/image"
 
 OPENGL_MAJOR_VERSION :: 4
 OPENGL_MINOR_VERSION :: 1
 
 // the camera's location in the world
-CameraPos : [3]f32 = {0, -3, 0}
+CameraPos: [3]f32 = {0, -3, 0}
 // the camera's "up" vector in the world
-CameraUp : [3]f32 = {0, 0, -1}
+CameraUp: [3]f32 = {0, 0, -1}
 // a vector pointing "forward" from the camera
-CameraFront : [3]f32 = {0, 1, 0}
+CameraFront: [3]f32 = {0, 1, 0}
 // speed of the camera defined as a multiple of CameraFront
 CAMERA_SPEED :: 0.05
+MOUSE_SENSITIVITY :: 0.1
+LastMouseX, LastMouseY: f64 = 0, 0
+MouseYaw, MousePitch: f32 = 0, 0
 
 main :: proc() {
-    glfw.SetErrorCallback(error_callback)
+	glfw.SetErrorCallback(error_callback)
 
-    if !glfw.Init() {
-        panic("Failed to initialize glfw")
-    }
-    defer glfw.Terminate()
+	if !glfw.Init() {
+		panic("Failed to initialize glfw")
+	}
+	defer glfw.Terminate()
 
-    // seems to be the latest OpenGL version supported on macOS
-    glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, OPENGL_MAJOR_VERSION)
-    glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, OPENGL_MINOR_VERSION)
-    glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+	// seems to be the latest OpenGL version supported on macOS
+	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, OPENGL_MAJOR_VERSION)
+	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, OPENGL_MINOR_VERSION)
+	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 
-    window := glfw.CreateWindow(640, 480, "Ravens", nil, nil)
-    if window == nil {
-        description, code := glfw.GetError()
-        panic(fmt.tprintfln("Failed to create glfw window, error: %v, description: %v", code, description))
-    }
-    defer glfw.DestroyWindow(window)
+	window := glfw.CreateWindow(640, 480, "Ravens", nil, nil)
+	if window == nil {
+		description, code := glfw.GetError()
+		panic(
+			fmt.tprintfln(
+				"Failed to create glfw window, error: %v, description: %v",
+				code,
+				description,
+			),
+		)
+	}
+	defer glfw.DestroyWindow(window)
 
-    glfw.MakeContextCurrent(window)
+	glfw.MakeContextCurrent(window)
+	glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+	glfw.SetCursorPosCallback(window, mouse_pos_callback)
 
-    // this is some odin specific stuff that loads all the OpenGL functions from the windowing system
-    // into the gl module, for this particular version of OpenGL
-    gl.load_up_to(OPENGL_MAJOR_VERSION, OPENGL_MINOR_VERSION, glfw.gl_set_proc_address)
+	// this is some odin specific stuff that loads all the OpenGL functions from the windowing system
+	// into the gl module, for this particular version of OpenGL
+	gl.load_up_to(OPENGL_MAJOR_VERSION, OPENGL_MINOR_VERSION, glfw.gl_set_proc_address)
 
-    glfw.SetFramebufferSizeCallback(window, framebuffer_size_callback)
+	glfw.SetFramebufferSizeCallback(window, framebuffer_size_callback)
 
-    // yet another fantastic helper function for loading, compiling, and attaching shaders to this OpenGL program
-    glProgram := gl.load_shaders("shaders/shader.vert", "shaders/shader.frag") or_else panic("Failed to load and compile shaders")
-    defer gl.DeleteProgram(glProgram)
-    gl.UseProgram(glProgram)
+	// yet another fantastic helper function for loading, compiling, and attaching shaders to this OpenGL program
+	glProgram :=
+		gl.load_shaders("shaders/shader.vert", "shaders/shader.frag") or_else panic(
+			"Failed to load and compile shaders",
+		)
+	defer gl.DeleteProgram(glProgram)
+	gl.UseProgram(glProgram)
 
-    // not to be confused with "vertex buffer object", this is a container telling OpenGL how to map
-    // "vertex buffer objects" onto the inputs of the vertex shader, but doesn't actually store the data itself.
-    vertexArrayObject: u32
-    gl.GenVertexArrays(1, &vertexArrayObject)
-    defer gl.DeleteVertexArrays(1, &vertexArrayObject)
-    gl.BindVertexArray(vertexArrayObject)
+	// not to be confused with "vertex buffer object", this is a container telling OpenGL how to map
+	// "vertex buffer objects" onto the inputs of the vertex shader, but doesn't actually store the data itself.
+	vertexArrayObject: u32
+	gl.GenVertexArrays(1, &vertexArrayObject)
+	defer gl.DeleteVertexArrays(1, &vertexArrayObject)
+	gl.BindVertexArray(vertexArrayObject)
 
-    textureWidth, textureHeight, textureChannelCount: c.int
-    textureBytes := stb.load("assets/container-texture.jpg", &textureWidth, &textureHeight, &textureChannelCount, 0)
-    if textureBytes == nil {
-        panic(fmt.tprintf("Failed to load texture %s", stb.failure_reason()))
-    }
-    defer stb.image_free(textureBytes)
-    glTexture: u32
-    gl.GenTextures(1, &glTexture)
-    defer gl.DeleteTextures(1, &glTexture)
-    gl.BindTexture(gl.TEXTURE_2D, glTexture)
-    // how opengl should handle going out of bounds on the texture's 0 - 1.0 coordinates
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
-    // how opengl should sample the texture
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-    gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, textureWidth, textureHeight, 0, gl.RGB, gl.UNSIGNED_BYTE, textureBytes)
-    gl.GenerateMipmap(gl.TEXTURE_2D)
+	textureWidth, textureHeight, textureChannelCount: c.int
+	textureBytes := stb.load(
+		"assets/container-texture.jpg",
+		&textureWidth,
+		&textureHeight,
+		&textureChannelCount,
+		0,
+	)
+	if textureBytes == nil {
+		panic(fmt.tprintf("Failed to load texture %s", stb.failure_reason()))
+	}
+	defer stb.image_free(textureBytes)
+	glTexture: u32
+	gl.GenTextures(1, &glTexture)
+	defer gl.DeleteTextures(1, &glTexture)
+	gl.BindTexture(gl.TEXTURE_2D, glTexture)
+	// how opengl should handle going out of bounds on the texture's 0 - 1.0 coordinates
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+	// how opengl should sample the texture
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexImage2D(
+		gl.TEXTURE_2D,
+		0,
+		gl.RGB,
+		textureWidth,
+		textureHeight,
+		0,
+		gl.RGB,
+		gl.UNSIGNED_BYTE,
+		textureBytes,
+	)
+	gl.GenerateMipmap(gl.TEXTURE_2D)
 
-    // these are just the standalone vert positions, we use an element buffer object to tell OpenGL how to draw
-    // triangles out of them
-    squareData := [?]f32{
-        // positions      // colors       // texture coords
-        0.5, 0.5, 0,       1, 0, 0,       1, 1,
-        0.5, -0.5, 0,      0, 1, 0,       1, 0,
-        -0.5, -0.5, 0,     0, 0, 1,       0, 0,
-        -0.5, 0.5, 0,      1, 1, 0,       0, 1,
-    }
-    // these index into the verts mentioned above, telling OpenGL how to make triangles out of those vertices
-    squareVertIndices := [?]u32{
-        0, 1, 3,
-        1, 2, 3
-    }
-    // not to be confused with "vertex array object", this object contains the actual vertices, but doesn't
-    // describe how they are mapped to the input variables in the vertex shader.
-    vertexBufferObject: u32
-    gl.GenBuffers(1, &vertexBufferObject)
-    defer gl.DeleteBuffers(1, &vertexBufferObject)
-    gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
-    gl.BufferData(gl.ARRAY_BUFFER, size_of(squareData), &squareData, gl.STATIC_DRAW)
-    elementBufferObject: u32
-    gl.GenBuffers(1, &elementBufferObject)
-    defer gl.DeleteBuffers(1, &elementBufferObject)
-    gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBufferObject)
-    gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(squareVertIndices), &squareVertIndices, gl.STATIC_DRAW)
+	// these are just the standalone vert positions, we use an element buffer object to tell OpenGL how to draw
+	// triangles out of them
+	squareData := [?]f32{
+		// positions      // colors       // texture coords
+		0.5, 0.5, 0,       1, 0, 0,       1, 1,
+		0.5, -0.5, 0,      0, 1, 0,       1, 0,
+		-0.5, -0.5, 0,     0, 0, 1,       0, 0,
+		-0.5, 0.5, 0,      1, 1, 0,       0, 1,
+	}
+	// these index into the verts mentioned above, telling OpenGL how to make triangles out of those vertices
+	squareVertIndices := [?]u32{
+		0, 1, 3,
+		1, 2, 3
+	}
+	// not to be confused with "vertex array object", this object contains the actual vertices, but doesn't
+	// describe how they are mapped to the input variables in the vertex shader.
+	vertexBufferObject: u32
+	gl.GenBuffers(1, &vertexBufferObject)
+	defer gl.DeleteBuffers(1, &vertexBufferObject)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(squareData), &squareData, gl.STATIC_DRAW)
+	elementBufferObject: u32
+	gl.GenBuffers(1, &elementBufferObject)
+	defer gl.DeleteBuffers(1, &elementBufferObject)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBufferObject)
+	gl.BufferData(
+		gl.ELEMENT_ARRAY_BUFFER,
+		size_of(squareVertIndices),
+		&squareVertIndices,
+		gl.STATIC_DRAW,
+	)
 
-    gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
-    gl.EnableVertexAttribArray(0)
-    gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
-    gl.EnableVertexAttribArray(1)
-    gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
-    gl.EnableVertexAttribArray(2)
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
+	gl.EnableVertexAttribArray(2)
 
-    cubeData := [?]f32{
-        // positions        // colors   // texture coords
-        -0.5, -0.5, -0.5,   1, 1, 1,   0, 0,
-        0.5, -0.5, -0.5,    1, 1, 1,   1, 0,
-        0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
-        0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
-        -0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
-        -0.5, -0.5, -0.5,   1, 1, 1,   0, 0,
+	cubeData := [?]f32{
+		// positions        // colors   // texture coords
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,
+		0.5, -0.5, -0.5,    1, 1, 1,   1, 0,
+		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
+		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
+		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,
 
-        -0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
-        0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
-        0.5,  0.5,  0.5,    1, 1, 1,   1, 1,
-        0.5,  0.5,  0.5,    1, 1, 1,   1, 1,
-        -0.5,  0.5,  0.5,   1, 1, 1,   0, 1,
-        -0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 1,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 1,
+		-0.5,  0.5,  0.5,   1, 1, 1,   0, 1,
+		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
 
-        -0.5,  0.5,  0.5,   1, 1, 1,   1, 0,
-        -0.5,  0.5, -0.5,   1, 1, 1,   1, 1,
-        -0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
-        -0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
-        -0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
-        -0.5,  0.5,  0.5,   1, 1, 1,   1, 0,
+		-0.5,  0.5,  0.5,   1, 1, 1,   1, 0,
+		-0.5,  0.5, -0.5,   1, 1, 1,   1, 1,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+		-0.5,  0.5,  0.5,   1, 1, 1,   1, 0,
 
-        0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
-        0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
-        0.5, -0.5, -0.5,    1, 1, 1,   0, 1,
-        0.5, -0.5, -0.5,    1, 1, 1,   0, 1,
-        0.5, -0.5,  0.5,    1, 1, 1,   0, 0,
-        0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
+		0.5, -0.5, -0.5,    1, 1, 1,   0, 1,
+		0.5, -0.5, -0.5,    1, 1, 1,   0, 1,
+		0.5, -0.5,  0.5,    1, 1, 1,   0, 0,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
 
-        -0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
-        0.5, -0.5, -0.5,    1, 1, 1,   1, 1,
-        0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
-        0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
-        -0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
-        -0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+		0.5, -0.5, -0.5,    1, 1, 1,   1, 1,
+		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
+		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
+		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
 
-        -0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
-        0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
-        0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
-        0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
-        -0.5,  0.5,  0.5,   1, 1, 1,   0, 0,
-        -0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
-    }
-    cubeVertexBufferObject: u32
-    gl.GenBuffers(1, &cubeVertexBufferObject)
-    defer gl.DeleteBuffers(1, &cubeVertexBufferObject)
-    gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
-    gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
+		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
+		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+		-0.5,  0.5,  0.5,   1, 1, 1,   0, 0,
+		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
+	}
+	cubeVertexBufferObject: u32
+	gl.GenBuffers(1, &cubeVertexBufferObject)
+	defer gl.DeleteBuffers(1, &cubeVertexBufferObject)
+	gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
 
-    projectionMatrix := linalg.matrix4_perspective_f32(linalg.to_radians(f32(45)), 640 / 480, 0.1, 100)
-    gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "projection"), 1, false, raw_data(&projectionMatrix))
+	projectionMatrix := linalg.matrix4_perspective_f32(
+		linalg.to_radians(f32(45)),
+		640 / 480,
+		0.1,
+		100,
+	)
+	gl.UniformMatrix4fv(
+		gl.GetUniformLocation(glProgram, "projection"),
+		1,
+		false,
+		raw_data(&projectionMatrix),
+	)
 
-    // uncomment for wireframe rendering
-//     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+	// uncomment for wireframe rendering
+	//     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 
-    // we enable the vertex shader attributes
-    // actually configuring them to point to the buffers is done in the render loop
-    gl.EnableVertexAttribArray(0)
-    gl.EnableVertexAttribArray(1)
-    gl.EnableVertexAttribArray(2)
+	// we enable the vertex shader attributes
+	// actually configuring them to point to the buffers is done in the render loop
+	gl.EnableVertexAttribArray(0)
+	gl.EnableVertexAttribArray(1)
+	gl.EnableVertexAttribArray(2)
 
-    gl.Enable(gl.DEPTH_TEST)
+	gl.Enable(gl.DEPTH_TEST)
 
-    for !glfw.WindowShouldClose(window) {
-        if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
-            glfw.SetWindowShouldClose(window, true)
-        }
-        if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
-            CameraPos += (CAMERA_SPEED * CameraFront)
-        }
-        if glfw.GetKey(window, glfw.KEY_A) == glfw.PRESS {
-            // cross product gives us the third axis (horizontal), and we normalise to ensure
-            // the speed is always a multiple of the same length vector
-            CameraPos -= linalg.normalize(linalg.vector_cross3(CameraFront, CameraUp)) * CAMERA_SPEED
-        }
-        if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
-            CameraPos -= (CAMERA_SPEED * CameraFront)
-        }
-        if glfw.GetKey(window, glfw.KEY_D) == glfw.PRESS {
-            // cross product gives us the third axis (horizontal), and we normalise to ensure
-            // the speed is always a multiple of the same length vector
-            CameraPos += linalg.normalize(linalg.vector_cross3(CameraFront, CameraUp)) * CAMERA_SPEED
-        }
+	LastMouseX, LastMouseY = glfw.GetCursorPos(window)
 
-        gl.ClearColor(0.3, 0.4, 0.5, 1.0)
-        gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	for !glfw.WindowShouldClose(window) {
+		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
+			glfw.SetWindowShouldClose(window, true)
+		}
+		if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
+			CameraPos += (CAMERA_SPEED * CameraFront)
+		}
+		if glfw.GetKey(window, glfw.KEY_A) == glfw.PRESS {
+			// cross product gives us the third axis (horizontal), and we normalise to ensure
+			// the speed is always a multiple of the same length vector
+			CameraPos -=
+				linalg.normalize(linalg.vector_cross3(CameraFront, CameraUp)) * CAMERA_SPEED
+		}
+		if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
+			CameraPos -= (CAMERA_SPEED * CameraFront)
+		}
+		if glfw.GetKey(window, glfw.KEY_D) == glfw.PRESS {
+			// cross product gives us the third axis (horizontal), and we normalise to ensure
+			// the speed is always a multiple of the same length vector
+			CameraPos +=
+				linalg.normalize(linalg.vector_cross3(CameraFront, CameraUp)) * CAMERA_SPEED
+		}
 
-        viewMatrix := linalg.matrix4_look_at_f32(CameraPos, CameraPos + CameraFront, CameraUp)
-        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "view"), 1, false, raw_data(&viewMatrix))
+		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-        // using time as a source for the angle allows it to simulate a frame rate independent rotation
-        // in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
-        // doing the operations in this order results in a neat rotate around a point effect
+		viewMatrix := linalg.matrix4_look_at_f32(CameraPos, CameraPos + CameraFront, CameraUp)
+		gl.UniformMatrix4fv(
+			gl.GetUniformLocation(glProgram, "view"),
+			1,
+			false,
+			raw_data(&viewMatrix),
+		)
 
-        // now we draw the square
-        gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
-        modelMatrix :=
-            linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
-            linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
-            linalg.matrix4_translate_f32({0, 1.5, 0})
-        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
-        gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
-        gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
-        gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
-        gl.DrawElements(gl.TRIANGLES, len(squareVertIndices), gl.UNSIGNED_INT, nil)
+		// using time as a source for the angle allows it to simulate a frame rate independent rotation
+		// in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
+		// doing the operations in this order results in a neat rotate around a point effect
 
-        // now we draw the cube
-        gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
-        modelMatrix =
-            linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
-            linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0})
-        gl.UniformMatrix4fv(gl.GetUniformLocation(glProgram, "model"), 1, false, raw_data(&modelMatrix))
-        // we must redo this so it points to the new buffer
-        gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
-        gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
-        gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
-        gl.DrawArrays(gl.TRIANGLES, 0, 36)
+		// now we draw the square
+		gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
+		modelMatrix :=
+			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
+			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
+			linalg.matrix4_translate_f32({0, 1.5, 0})
+		gl.UniformMatrix4fv(
+			gl.GetUniformLocation(glProgram, "model"),
+			1,
+			false,
+			raw_data(&modelMatrix),
+		)
+		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
+		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
+		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
+		gl.DrawElements(gl.TRIANGLES, len(squareVertIndices), gl.UNSIGNED_INT, nil)
 
-        glfw.SwapBuffers(window)
-        glfw.PollEvents()
-    }
+		// now we draw the cube
+		gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
+		modelMatrix =
+			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
+			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0})
+		gl.UniformMatrix4fv(
+			gl.GetUniformLocation(glProgram, "model"),
+			1,
+			false,
+			raw_data(&modelMatrix),
+		)
+		// we must redo this so it points to the new buffer
+		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
+		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
+		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
+		gl.DrawArrays(gl.TRIANGLES, 0, 36)
+
+		glfw.SwapBuffers(window)
+		glfw.PollEvents()
+	}
 }
 
 /*
 Error callback for glfw
 */
-@(private="file")
+@(private = "file")
 error_callback :: proc "c" (code: c.int, description: cstring) {
-    // glfw will be calling us from C, so won't have the Odin context we need for
-    // formatting to work, so we load it here
-    context = runtime.default_context()
-    fmt.printfln("GLFW Error: %v, description: %v", code, description)
+	// glfw will be calling us from C, so won't have the Odin context we need for
+	// formatting to work, so we load it here
+	context = runtime.default_context()
+	fmt.printfln("GLFW Error: %v, description: %v", code, description)
 }
 
 /*
 Callback that glfw uses to keep OpenGL's viewport size up to date with the window size
 */
-@(private="file")
+@(private = "file")
 framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: c.int) {
-    gl.Viewport(0, 0, width, height)
+	gl.Viewport(0, 0, width, height)
+}
+
+@(private = "file")
+mouse_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: c.double) {
+	xOffset := f32(x - LastMouseX)
+	yOffset := f32(y - LastMouseY)
+
+	LastMouseX = x
+	LastMouseY = y
+
+	MouseYaw += yOffset * MOUSE_SENSITIVITY
+	MousePitch += xOffset * MOUSE_SENSITIVITY
+	if MouseYaw > 89 {
+		MouseYaw = 89
+	}
+	if MouseYaw < -89 {
+		MouseYaw = -89
+	}
+
+	CameraFront = linalg.vector_normalize(
+		[?]f32 {
+			linalg.cos(linalg.to_radians(MouseYaw)) * linalg.cos(linalg.to_radians(MousePitch)),
+			linalg.sin(linalg.to_radians(MousePitch)),
+			linalg.sin(linalg.to_radians(MouseYaw)) * linalg.sin(linalg.to_radians(MousePitch)),
+		},
+	)
 }

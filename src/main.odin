@@ -10,11 +10,11 @@ import "vendor:glfw"
 import stb "vendor:stb/image"
 
 /*
- We follow OpenGL's coordinate system, which is right handed
- x grows to the right
- y grows upwards
- z grows backwards (towards the viewer)
+this is OpenGL's coordinate system
 */
+WORLD_UP :: [?]f32{0, 1, 0}
+WORLD_RIGHT :: [?]f32{1, 0, 0}
+WORLD_FORWARD :: [?]f32{0, 0, -1}
 
 // seems to be the latest OpenGL version supported on macOS
 OPENGL_MAJOR_VERSION :: 4
@@ -26,20 +26,20 @@ WINDOW_HEIGHT :: 480
 WINDOW_ASPECT_RATIO :: WINDOW_WIDTH / WINDOW_HEIGHT
 
 CAMERA_DEFAULT_POS :: [?]f32{0, 0, 3}
-CAMERA_DEFAULT_UP :: [?]f32{0, 1, 0}
 CAMERA_DEFAULT_FRONT :: [?]f32{0, 0, -1}
 
 // the camera's location in the world
 CameraPos: [3]f32 = CAMERA_DEFAULT_POS
-// the camera's "up" vector in the world
-CameraUp: [3]f32 = CAMERA_DEFAULT_UP
-// a vector pointing "forward" from the camera
+// a vector pointing "forward" from the camera, make sure MouseYaw and MousePitch are
+// also updated to avoid a camera jump on first movement
 CameraFront: [3]f32 = CAMERA_DEFAULT_FRONT
 // speed of the camera defined as a multiple of CameraFront
 CAMERA_SPEED :: 0.05
 MOUSE_SENSITIVITY :: 0.1
 LastMouseX, LastMouseY: f64 = 0, 0
-MouseYaw, MousePitch: f32 = 0, 0
+// the camera equation results in 0,0 pointing straight to the right, so this value matches
+// the CAMERA_DEFAULT_FRONT direction
+CameraYaw, CameraPitch: f32 = -90, 0
 
 main :: proc() {
 	glfw.SetErrorCallback(error_callback)
@@ -68,7 +68,6 @@ main :: proc() {
 	defer glfw.DestroyWindow(window)
 
 	glfw.MakeContextCurrent(window)
-	glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 	glfw.SetCursorPosCallback(window, mouse_pos_callback)
 
 	// this is some odin specific stuff that loads all the OpenGL functions from the windowing system
@@ -240,6 +239,8 @@ main :: proc() {
 		raw_data(&projectionMatrix),
 	)
 
+	fmt.printfln("Initial camera parameters:\n\tpos: %v\n\tfront: %v\n\t", CameraPos, CameraFront)
+
 	for !glfw.WindowShouldClose(window) {
 		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
 			glfw.SetWindowShouldClose(window, true)
@@ -247,7 +248,6 @@ main :: proc() {
 		if glfw.GetKey(window, glfw.KEY_R) == glfw.PRESS {
 			CameraPos = CAMERA_DEFAULT_POS
 			CameraFront = CAMERA_DEFAULT_FRONT
-			CameraUp = CAMERA_DEFAULT_UP
 
 			LastMouseX = 0
 			LastMouseY = 0
@@ -259,7 +259,7 @@ main :: proc() {
 			// cross product gives us the third axis (horizontal), and we normalise to ensure
 			// the speed is always a multiple of the same length vector
 			CameraPos -=
-				linalg.normalize(linalg.vector_cross3(CameraFront, CameraUp)) * CAMERA_SPEED
+				linalg.normalize(linalg.vector_cross3(CameraFront, WORLD_UP)) * CAMERA_SPEED
 		}
 		if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
 			CameraPos -= (CAMERA_SPEED * CameraFront)
@@ -268,13 +268,32 @@ main :: proc() {
 			// cross product gives us the third axis (horizontal), and we normalise to ensure
 			// the speed is always a multiple of the same length vector
 			CameraPos +=
-				linalg.normalize(linalg.vector_cross3(CameraFront, CameraUp)) * CAMERA_SPEED
+				linalg.normalize(linalg.vector_cross3(CameraFront, WORLD_UP)) * CAMERA_SPEED
+		}
+		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS {
+			// only when the button is clicked the first time
+			if (glfw.GetInputMode(window, glfw.CURSOR) != glfw.CURSOR_DISABLED) {
+
+				glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+
+				LastMouseX, LastMouseY = glfw.GetCursorPos(window)
+			}
+		}
+		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.RELEASE {
+			// just to prevent churn of constantly setting the input mode
+			if (glfw.GetInputMode(window, glfw.CURSOR) != glfw.CURSOR_NORMAL) {
+				glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+			}
 		}
 
 		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		viewMatrix := linalg.matrix4_look_at_f32(CameraPos, CameraPos + CameraFront, CameraUp)
+		viewMatrix := linalg.matrix4_look_at(
+			CameraPos,
+			CameraPos + CameraFront,
+			WORLD_UP
+		)
 		gl.UniformMatrix4fv(
 			gl.GetUniformLocation(glProgram, "view"),
 			1,
@@ -349,26 +368,33 @@ framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height:
 
 @(private = "file")
 mouse_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: c.double) {
-	xOffset := f32(x - LastMouseX)
-	yOffset := f32(y - LastMouseY)
+	context = runtime.default_context()
+
+	if glfw.GetInputMode(window, glfw.CURSOR) == glfw.CURSOR_NORMAL {
+		return
+	}
+
+	changeInX := f32(x - LastMouseX)
+	changeInY := f32(LastMouseY - y)
 
 	LastMouseX = x
 	LastMouseY = y
 
-	MouseYaw += yOffset * MOUSE_SENSITIVITY
-	MousePitch += xOffset * MOUSE_SENSITIVITY
-	if MouseYaw > 89 {
-		MouseYaw = 89
+	CameraYaw += changeInX * MOUSE_SENSITIVITY
+	CameraPitch += changeInY * MOUSE_SENSITIVITY
+	// prevent up/down camera from wrapping around
+	if CameraPitch > 89 {
+		CameraPitch = 89
 	}
-	if MouseYaw < -89 {
-		MouseYaw = -89
+	if CameraPitch < -89 {
+		CameraPitch = -89
 	}
 
 	CameraFront = linalg.vector_normalize(
 		[?]f32 {
-			linalg.cos(linalg.to_radians(MouseYaw)) * linalg.cos(linalg.to_radians(MousePitch)),
-			linalg.sin(linalg.to_radians(MousePitch)),
-			linalg.sin(linalg.to_radians(MouseYaw)) * linalg.sin(linalg.to_radians(MousePitch)),
+			linalg.cos(linalg.to_radians(CameraYaw)) * linalg.cos(linalg.to_radians(CameraPitch)),
+			linalg.sin(linalg.to_radians(CameraPitch)),
+			linalg.sin(linalg.to_radians(CameraYaw)) * linalg.cos(linalg.to_radians(CameraPitch)),
 		},
 	)
 }

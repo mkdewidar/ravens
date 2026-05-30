@@ -25,12 +25,16 @@ WINDOW_WIDTH :: 640
 WINDOW_HEIGHT :: 480
 WINDOW_ASPECT_RATIO :: WINDOW_WIDTH / WINDOW_HEIGHT
 
+CAMERA_DEFAULT_POS :: [?]f32{0, 0, 3}
+CAMERA_DEFAULT_UP :: [?]f32{0, 1, 0}
+CAMERA_DEFAULT_FRONT :: [?]f32{0, 0, -1}
+
 // the camera's location in the world
-CameraPos: [3]f32 = {0, 0, 3}
+CameraPos: [3]f32 = CAMERA_DEFAULT_POS
 // the camera's "up" vector in the world
-CameraUp: [3]f32 = {0, 1, 0}
+CameraUp: [3]f32 = CAMERA_DEFAULT_UP
 // a vector pointing "forward" from the camera
-CameraFront: [3]f32 = {0, 0, -1}
+CameraFront: [3]f32 = CAMERA_DEFAULT_FRONT
 // speed of the camera defined as a multiple of CameraFront
 CAMERA_SPEED :: 0.05
 MOUSE_SENSITIVITY :: 0.1
@@ -236,11 +240,17 @@ main :: proc() {
 		raw_data(&projectionMatrix),
 	)
 
-	LastMouseX, LastMouseY = glfw.GetCursorPos(window)
-
 	for !glfw.WindowShouldClose(window) {
 		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
 			glfw.SetWindowShouldClose(window, true)
+		}
+		if glfw.GetKey(window, glfw.KEY_R) == glfw.PRESS {
+			CameraPos = CAMERA_DEFAULT_POS
+			CameraFront = CAMERA_DEFAULT_FRONT
+			CameraUp = CAMERA_DEFAULT_UP
+
+			LastMouseX = 0
+			LastMouseY = 0
 		}
 		if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
 			CameraPos += (CAMERA_SPEED * CameraFront)

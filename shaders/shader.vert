@@ -11,7 +11,8 @@ out vec2 texCoordinates;
 uniform mat4 model;
 // view matrix converts coordinates from world to camera-relative coordinates
 uniform mat4 view;
-// perspective matrix applies perspective projection to the camera-relative coordinates
+// perspective matrix applies perspective projection to the camera-relative coordinates, leaving them
+// in NDC/clip space coordinates that OpenGL uses
 uniform mat4 projection;
 
 void main() {

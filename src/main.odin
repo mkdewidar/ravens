@@ -9,15 +9,28 @@ import gl "vendor:OpenGL"
 import "vendor:glfw"
 import stb "vendor:stb/image"
 
+/*
+ We follow OpenGL's coordinate system, which is right handed
+ x grows to the right
+ y grows upwards
+ z grows backwards (towards the viewer)
+*/
+
+// seems to be the latest OpenGL version supported on macOS
 OPENGL_MAJOR_VERSION :: 4
 OPENGL_MINOR_VERSION :: 1
 
+// the viewport is kept the same size as the window using framebuffer_size_callback
+WINDOW_WIDTH :: 640
+WINDOW_HEIGHT :: 480
+WINDOW_ASPECT_RATIO :: WINDOW_WIDTH / WINDOW_HEIGHT
+
 // the camera's location in the world
-CameraPos: [3]f32 = {0, -3, 0}
+CameraPos: [3]f32 = {0, 0, 3}
 // the camera's "up" vector in the world
-CameraUp: [3]f32 = {0, 0, -1}
+CameraUp: [3]f32 = {0, 1, 0}
 // a vector pointing "forward" from the camera
-CameraFront: [3]f32 = {0, 1, 0}
+CameraFront: [3]f32 = {0, 0, -1}
 // speed of the camera defined as a multiple of CameraFront
 CAMERA_SPEED :: 0.05
 MOUSE_SENSITIVITY :: 0.1
@@ -32,12 +45,12 @@ main :: proc() {
 	}
 	defer glfw.Terminate()
 
-	// seems to be the latest OpenGL version supported on macOS
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, OPENGL_MAJOR_VERSION)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, OPENGL_MINOR_VERSION)
+	// primarily for macOS
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 
-	window := glfw.CreateWindow(640, 480, "Ravens", nil, nil)
+	window := glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Ravens", nil, nil)
 	if window == nil {
 		description, code := glfw.GetError()
 		panic(
@@ -199,19 +212,6 @@ main :: proc() {
 	gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
 	gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
 
-	projectionMatrix := linalg.matrix4_perspective_f32(
-		linalg.to_radians(f32(45)),
-		640 / 480,
-		0.1,
-		100,
-	)
-	gl.UniformMatrix4fv(
-		gl.GetUniformLocation(glProgram, "projection"),
-		1,
-		false,
-		raw_data(&projectionMatrix),
-	)
-
 	// uncomment for wireframe rendering
 	//     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 
@@ -222,6 +222,19 @@ main :: proc() {
 	gl.EnableVertexAttribArray(2)
 
 	gl.Enable(gl.DEPTH_TEST)
+
+	projectionMatrix := linalg.matrix4_perspective_f32(
+		linalg.to_radians(f32(45)),
+		WINDOW_ASPECT_RATIO,
+		0.1,
+		100,
+	)
+	gl.UniformMatrix4fv(
+		gl.GetUniformLocation(glProgram, "projection"),
+		1,
+		false,
+		raw_data(&projectionMatrix),
+	)
 
 	LastMouseX, LastMouseY = glfw.GetCursorPos(window)
 
@@ -266,8 +279,11 @@ main :: proc() {
 		// now we draw the square
 		gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
 		modelMatrix :=
-			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
+			// rotates around the z at a rate of 50 degrees per second
 			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
+			// leans the square back by 55 degrees
+			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
+			// the square is moved up 1.5 units of world space
 			linalg.matrix4_translate_f32({0, 1.5, 0})
 		gl.UniformMatrix4fv(
 			gl.GetUniformLocation(glProgram, "model"),

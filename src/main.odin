@@ -270,6 +270,12 @@ main :: proc() {
 			CameraPos +=
 				linalg.normalize(linalg.vector_cross3(CameraFront, WORLD_UP)) * CAMERA_SPEED
 		}
+		if glfw.GetKey(window, glfw.KEY_E) == glfw.PRESS {
+			CameraPos += linalg.normalize(WORLD_UP) * CAMERA_SPEED
+		}
+		if glfw.GetKey(window, glfw.KEY_Q) == glfw.PRESS {
+			CameraPos -= linalg.normalize(WORLD_UP) * CAMERA_SPEED
+		}
 		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS {
 			// only when the button is clicked the first time
 			if (glfw.GetInputMode(window, glfw.CURSOR) != glfw.CURSOR_DISABLED) {

@@ -316,10 +316,10 @@ main :: proc() {
 		modelMatrix :=
 			// rotates around the z at a rate of 50 degrees per second
 			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
-			// leans the square back by 55 degrees
-			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
-			// the square is moved up 1.5 units of world space
-			linalg.matrix4_translate_f32({0, 1.5, 0})
+			// move it up so its above the cube
+			linalg.matrix4_translate_f32({0, 1.5, 0}) *
+			// put the square flat on its side
+			linalg.matrix4_rotate_f32(linalg.to_radians(f32(90)), {1, 0, 0})
 		gl.UniformMatrix4fv(
 			gl.GetUniformLocation(glProgram, "model"),
 			1,

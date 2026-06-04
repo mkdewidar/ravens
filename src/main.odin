@@ -251,6 +251,8 @@ main :: proc() {
 
 			LastMouseX = 0
 			LastMouseY = 0
+
+			CameraYaw, CameraPitch = -90, 0
 		}
 		if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
 			CameraPos += (CAMERA_SPEED * CameraFront)

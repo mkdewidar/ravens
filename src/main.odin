@@ -3,8 +3,8 @@ package main
 import "base:runtime"
 import "core:c"
 import "core:fmt"
-
 import "core:math/linalg"
+
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 import stb "vendor:stb/image"
@@ -129,11 +129,11 @@ main :: proc() {
 	// these are just the standalone vert positions, we use an element buffer object to tell OpenGL how to draw
 	// triangles out of them
 	squareData := [?]f32{
-		// positions      // colors       // texture coords
-		0.5, 0.5, 0,       1, 0, 0,       1, 1,
-		0.5, -0.5, 0,      0, 1, 0,       1, 0,
-		-0.5, -0.5, 0,     0, 0, 1,       0, 0,
-		-0.5, 0.5, 0,      1, 1, 0,       0, 1,
+		// positions      // colors       // texture coords    // normal direction
+		0.5, 0.5, 0,       1, 0, 0,       1, 1,                0, 0, 1,
+		0.5, -0.5, 0,      0, 1, 0,       1, 0,                0, 0, 1,
+		-0.5, -0.5, 0,     0, 0, 1,       0, 0,                0, 0, 1,
+		-0.5, 0.5, 0,      1, 1, 0,       0, 1,                0, 0, 1,
 	}
 	// these index into the verts mentioned above, telling OpenGL how to make triangles out of those vertices
 	squareVertIndices := [?]u32{
@@ -158,56 +158,49 @@ main :: proc() {
 		gl.STATIC_DRAW,
 	)
 
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
-	gl.EnableVertexAttribArray(1)
-	gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
-	gl.EnableVertexAttribArray(2)
-
 	cubeData := [?]f32{
-		// positions        // colors   // texture coords
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,
-		0.5, -0.5, -0.5,    1, 1, 1,   1, 0,
-		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
-		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
-		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,
+		// positions        // colors   // texture coords    // normal direction
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,                 0, 0, -1,
+		0.5, -0.5, -0.5,    1, 1, 1,   1, 0,                 0, 0, -1,
+		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,                 0, 0, -1,
+		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,                 0, 0, -1,
+		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,                 0, 0, -1,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,                 0, 0, -1,
 
-		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
-		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 1,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 1,
-		-0.5,  0.5,  0.5,   1, 1, 1,   0, 1,
-		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
+		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,                 0, 0, 1,
+		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,                 0, 0, 1,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 1,                 0, 0, 1,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 1,                 0, 0, 1,
+		-0.5,  0.5,  0.5,   1, 1, 1,   0, 1,                 0, 0, 1,
+		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,                 0, 0, 1,
 
-		-0.5,  0.5,  0.5,   1, 1, 1,   1, 0,
-		-0.5,  0.5, -0.5,   1, 1, 1,   1, 1,
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
-		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
-		-0.5,  0.5,  0.5,   1, 1, 1,   1, 0,
+		-0.5,  0.5,  0.5,   1, 1, 1,   1, 0,                 -1, 0, 0,
+		-0.5,  0.5, -0.5,   1, 1, 1,   1, 1,                 -1, 0, 0,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,                 -1, 0, 0,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,                 -1, 0, 0,
+		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,                 -1, 0, 0,
+		-0.5,  0.5,  0.5,   1, 1, 1,   1, 0,                 -1, 0, 0,
 
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
-		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
-		0.5, -0.5, -0.5,    1, 1, 1,   0, 1,
-		0.5, -0.5, -0.5,    1, 1, 1,   0, 1,
-		0.5, -0.5,  0.5,    1, 1, 1,   0, 0,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,                 1, 0, 0,
+		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,                 1, 0, 0,
+		0.5, -0.5, -0.5,    1, 1, 1,   0, 1,                 1, 0, 0,
+		0.5, -0.5, -0.5,    1, 1, 1,   0, 1,                 1, 0, 0,
+		0.5, -0.5,  0.5,    1, 1, 1,   0, 0,                 1, 0, 0,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,                 1, 0, 0,
 
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
-		0.5, -0.5, -0.5,    1, 1, 1,   1, 1,
-		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
-		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,
-		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,                 0, -1, 0,
+		0.5, -0.5, -0.5,    1, 1, 1,   1, 1,                 0, -1, 0,
+		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,                 0, -1, 0,
+		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,                 0, -1, 0,
+		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,                 0, -1, 0,
+		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,                 0, -1, 0,
 
-		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
-		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,
-		-0.5,  0.5,  0.5,   1, 1, 1,   0, 0,
-		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,
+		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,                 0, 1, 0,
+		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,                 0, 1, 0,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,                 0, 1, 0,
+		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,                 0, 1, 0,
+		-0.5,  0.5,  0.5,   1, 1, 1,   0, 0,                 0, 1, 0,
+		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,                 0, 1, 0,
 	}
 	cubeVertexBufferObject: u32
 	gl.GenBuffers(1, &cubeVertexBufferObject)
@@ -223,6 +216,7 @@ main :: proc() {
 	gl.EnableVertexAttribArray(0)
 	gl.EnableVertexAttribArray(1)
 	gl.EnableVertexAttribArray(2)
+	gl.EnableVertexAttribArray(3)
 
 	gl.Enable(gl.DEPTH_TEST)
 
@@ -239,7 +233,15 @@ main :: proc() {
 		raw_data(&projectionMatrix),
 	)
 
+	lightWorldPos := [?]f32{ 0, 0, 1.5 }
+	gl.Uniform3fv(
+		gl.GetUniformLocation(glProgram, "lightPos"),
+		1,
+		raw_data(&lightWorldPos),
+	)
+
 	fmt.printfln("Initial camera parameters:\n\tpos: %v\n\tfront: %v\n\t", CameraPos, CameraFront)
+	fmt.printfln("Light parameters:\n\tpos: %v", lightWorldPos)
 
 	for !glfw.WindowShouldClose(window) {
 		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
@@ -309,6 +311,12 @@ main :: proc() {
 			raw_data(&viewMatrix),
 		)
 
+		gl.Uniform3fv(
+			gl.GetUniformLocation(glProgram, "viewPos"),
+			1,
+			raw_data(&CameraPos),
+		)
+
 		// using time as a source for the angle allows it to simulate a frame rate independent rotation
 		// in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
 		// doing the operations in this order results in a neat rotate around a point effect
@@ -328,16 +336,18 @@ main :: proc() {
 			false,
 			raw_data(&modelMatrix),
 		)
-		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
-		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
-		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
+		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 0)
+		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 3 * size_of(f32))
+		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 6 * size_of(f32))
+		gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 8 * size_of(f32))
 		gl.DrawElements(gl.TRIANGLES, len(squareVertIndices), gl.UNSIGNED_INT, nil)
 
 		// now we draw the cube
 		gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
 		modelMatrix =
 			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
-			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0})
+			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0}) *
+			1
 		gl.UniformMatrix4fv(
 			gl.GetUniformLocation(glProgram, "model"),
 			1,
@@ -345,9 +355,10 @@ main :: proc() {
 			raw_data(&modelMatrix),
 		)
 		// we must redo this so it points to the new buffer
-		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
-		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 3 * size_of(f32))
-		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
+		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 0)
+		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 3 * size_of(f32))
+		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 6 * size_of(f32))
+		gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 8 * size_of(f32))
 		gl.DrawArrays(gl.TRIANGLES, 0, 36)
 
 		glfw.SwapBuffers(window)

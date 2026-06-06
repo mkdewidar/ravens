@@ -7,7 +7,7 @@ layout(location = 3) in vec3 normal;
 
 // passed to the fragment shader, and as a result is interpolated for each fragment,
 // essentially giving us a fragment position in world space
-out vec3 vertWorldPos;
+out vec3 fragWorldPos;
 out vec3 vertColor;
 out vec2 texCoordinates;
 // should already be normalised
@@ -22,7 +22,7 @@ uniform mat4 view;
 uniform mat4 projection;
 
 void main() {
-    vertWorldPos = (model * vec4(pos, 1.0)).xyz;
+    fragWorldPos = (model * vec4(pos, 1.0)).xyz;
     gl_Position = projection * view * model * vec4(pos, 1.0);
     vertColor = color;
     texCoordinates = tex;

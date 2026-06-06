@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:math/linalg"
+import "core:strings"
 
 import gl "vendor:OpenGL"
 import "vendor:glfw"
@@ -25,7 +26,7 @@ WINDOW_WIDTH :: 640
 WINDOW_HEIGHT :: 480
 WINDOW_ASPECT_RATIO :: WINDOW_WIDTH / WINDOW_HEIGHT
 
-CAMERA_DEFAULT_POS :: [?]f32{0, 0, 3}
+CAMERA_DEFAULT_POS :: [?]f32{0, 0, 5}
 CAMERA_DEFAULT_FRONT :: [?]f32{0, 0, -1}
 
 // the camera's location in the world
@@ -91,40 +92,12 @@ main :: proc() {
 	defer gl.DeleteVertexArrays(1, &vertexArrayObject)
 	gl.BindVertexArray(vertexArrayObject)
 
-	textureWidth, textureHeight, textureChannelCount: c.int
-	textureBytes := stb.load(
-		"assets/container-texture.jpg",
-		&textureWidth,
-		&textureHeight,
-		&textureChannelCount,
-		0,
-	)
-	if textureBytes == nil {
-		panic(fmt.tprintf("Failed to load texture %s", stb.failure_reason()))
-	}
-	defer stb.image_free(textureBytes)
-	glTexture: u32
-	gl.GenTextures(1, &glTexture)
-	defer gl.DeleteTextures(1, &glTexture)
-	gl.BindTexture(gl.TEXTURE_2D, glTexture)
-	// how opengl should handle going out of bounds on the texture's 0 - 1.0 coordinates
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
-	// how opengl should sample the texture
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexImage2D(
-		gl.TEXTURE_2D,
-		0,
-		gl.RGB,
-		textureWidth,
-		textureHeight,
-		0,
-		gl.RGB,
-		gl.UNSIGNED_BYTE,
-		textureBytes,
-	)
-	gl.GenerateMipmap(gl.TEXTURE_2D)
+    containerTexture := LoadTextureIntoUnit("assets/container-texture.jpg", 0)
+    defer gl.DeleteTextures(1, &containerTexture)
+    container2Diffuse := LoadTextureIntoUnit("assets/container2-diffuse.png", 1)
+    defer gl.DeleteTextures(1, &container2Diffuse)
+    container2Specular := LoadTextureIntoUnit("assets/container2-specular.png", 2)
+    defer gl.DeleteTextures(1, &container2Specular)
 
 	// these are just the standalone vert positions, we use an element buffer object to tell OpenGL how to draw
 	// triangles out of them
@@ -233,15 +206,37 @@ main :: proc() {
 		raw_data(&projectionMatrix),
 	)
 
-	lightWorldPos := [?]f32{ 0, 0, 1.5 }
-	gl.Uniform3fv(
-		gl.GetUniformLocation(glProgram, "lightPos"),
-		1,
-		raw_data(&lightWorldPos),
-	)
-
 	fmt.printfln("Initial camera parameters:\n\tpos: %v\n\tfront: %v\n\t", CameraPos, CameraFront)
-	fmt.printfln("Light parameters:\n\tpos: %v", lightWorldPos)
+
+	fmt.printfln("Light parameters:")
+
+	directLightDirection := linalg.normalize([?]f32{ 0, -1, 0 })
+	gl.Uniform3fv(
+		gl.GetUniformLocation(glProgram, "directLight.direction"),
+		1,
+		raw_data(&directLightDirection),
+	)
+	directLightColor := [?]f32{ 1, 1, 1 }
+	gl.Uniform3fv(
+		gl.GetUniformLocation(glProgram, "directLight.color"),
+		1,
+		raw_data(&directLightColor),
+	)
+	fmt.printfln("\tdirectLight\n\t\tdirection: %v\n\t\tcolor: %v", directLightDirection, directLightColor)
+
+	pointLightPosition := [?]f32{ 0, 5, 0 }
+	gl.Uniform3fv(
+		gl.GetUniformLocation(glProgram, "pointLights[0].position"),
+		1,
+		raw_data(&pointLightPosition),
+	)
+	pointLightColor := [?]f32{ 0, 0, 1 }
+	gl.Uniform3fv(
+		gl.GetUniformLocation(glProgram, "pointLights[0].color"),
+		1,
+		raw_data(&pointLightColor),
+	)
+	fmt.printfln("\tpoint light\n\t\tposition: %v\n\t\tcolor: %v", pointLightPosition, pointLightColor)
 
 	for !glfw.WindowShouldClose(window) {
 		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
@@ -317,6 +312,13 @@ main :: proc() {
 			raw_data(&CameraPos),
 		)
 
+		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&[?]f32{0, 0, 0}))
+		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.specularColor"), 1, raw_data(&[?]f32{0, 0, 0}))
+        // by default we use the first container texture and no specular
+        gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 32)
+        gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 0)
+        gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 0)
+
 		// using time as a source for the angle allows it to simulate a frame rate independent rotation
 		// in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
 		// doing the operations in this order results in a neat rotate around a point effect
@@ -342,7 +344,7 @@ main :: proc() {
 		gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 8 * size_of(f32))
 		gl.DrawElements(gl.TRIANGLES, len(squareVertIndices), gl.UNSIGNED_INT, nil)
 
-		// now we draw the cube
+		// now we draw the central spinning cube
 		gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
 		modelMatrix =
 			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
@@ -359,6 +361,38 @@ main :: proc() {
 		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 3 * size_of(f32))
 		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 6 * size_of(f32))
 		gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 8 * size_of(f32))
+		gl.DrawArrays(gl.TRIANGLES, 0, 36)
+
+		// now we draw some random cubes around the scene
+		for i in 0..<10 {
+			modelMatrix =
+				linalg.matrix4_translate_f32({f32(3 * (i % 5)) - 5, f32(3 * (i / 5)) + 2.5, 0}) *
+				linalg.matrix4_rotate_f32(linalg.to_radians(f32(i * 20)), {1, 0.3, 0.5}) *
+				1
+			gl.UniformMatrix4fv(
+				gl.GetUniformLocation(glProgram, "model"),
+				1,
+				false,
+				raw_data(&modelMatrix),
+			)
+            gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 1)
+            gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 1)
+            gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.specularTex"), 2)
+			gl.DrawArrays(gl.TRIANGLES, 0, 36)
+		}
+
+		// now we draw the point light as a small cube
+		modelMatrix =
+			linalg.matrix4_translate_f32(pointLightPosition) *
+			linalg.matrix4_scale_f32({0.1, 0.1, 0.1}) *
+			1
+		gl.UniformMatrix4fv(
+			gl.GetUniformLocation(glProgram, "model"),
+			1,
+			false,
+			raw_data(&modelMatrix),
+		)
+		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&pointLightColor))
 		gl.DrawArrays(gl.TRIANGLES, 0, 36)
 
 		glfw.SwapBuffers(window)
@@ -416,4 +450,48 @@ mouse_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: c.double) {
 			linalg.sin(linalg.to_radians(CameraYaw)) * linalg.cos(linalg.to_radians(CameraPitch)),
 		},
 	)
+}
+
+LoadTextureIntoUnit :: proc(filename: string, unit: u32) -> u32 {
+    textureWidth, textureHeight, textureChannelCount: c.int
+    filenameCString := strings.clone_to_cstring(filename)
+    defer delete(filenameCString)
+    textureBytes := stb.load(
+        filenameCString,
+        &textureWidth,
+        &textureHeight,
+        &textureChannelCount,
+        3, // to match the hard coded RGB format we'll use below
+    )
+    if textureBytes == nil {
+        panic(fmt.tprintf("Failed to load texture %s", stb.failure_reason()))
+    }
+    defer stb.image_free(textureBytes)
+
+    glTexture: u32
+    gl.GenTextures(1, &glTexture)
+
+    gl.ActiveTexture(gl.TEXTURE0 + unit)
+    gl.BindTexture(gl.TEXTURE_2D, glTexture)
+
+    // how opengl should handle going out of bounds on the texture's 0 - 1.0 coordinates
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+    // how opengl should sample the texture
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.TexImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGB,
+        textureWidth,
+        textureHeight,
+        0,
+        gl.RGB,
+        gl.UNSIGNED_BYTE,
+        textureBytes,
+    )
+    gl.GenerateMipmap(gl.TEXTURE_2D)
+
+    return glTexture
 }

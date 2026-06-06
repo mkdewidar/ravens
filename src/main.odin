@@ -315,7 +315,7 @@ main :: proc() {
 		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&[?]f32{0, 0, 0}))
 		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.specularColor"), 1, raw_data(&[?]f32{0, 0, 0}))
         // by default we use the first container texture and no specular
-        gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 32)
+        gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 0)
         gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 0)
         gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 0)
 
@@ -356,6 +356,7 @@ main :: proc() {
 			false,
 			raw_data(&modelMatrix),
 		)
+        gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 16)
 		// we must redo this so it points to the new buffer
 		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 0)
 		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 3 * size_of(f32))
@@ -375,6 +376,7 @@ main :: proc() {
 				false,
 				raw_data(&modelMatrix),
 			)
+            gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 32)
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 1)
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 1)
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.specularTex"), 2)

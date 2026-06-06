@@ -24,11 +24,12 @@ uniform PointLight[POINT_LIGHTS_COUNT] pointLights;
 struct Material {
     vec3 emissiveColor;
     sampler2D diffuseTex;
+    // can be set to 0 to disable specular entirely for this material
+    float specularity;
     vec3 specularColor;
     // set to true and then set the specularTex to use a specular map instead of basic color
     bool useSpecularMap;
     sampler2D specularTex;
-    float specularity;
 };
 uniform Material objectMaterial;
 
@@ -44,11 +45,16 @@ vec4 colorUnderDirectionalLight(Material material, DirectionalLight dirLight, ve
     float diffuseFactor = max(dot(normal, -dirLight.direction), 0.0);
     vec3 diffuseColor = diffuseFactor * dirLight.color * vec3(texture(material.diffuseTex, texCoordinates));
 
-    vec3 lightReflectionDir = reflect(dirLight.direction, normal);
-    float specularFactor = pow(max(dot(normalize(viewPos - fragWorldPos), lightReflectionDir), 0.0), material.specularity);
-    vec3 specularColor = specularFactor * dirLight.color;
-    if (material.useSpecularMap) {
-        specularColor *= vec3(texture(material.specularTex, texCoordinates));
+    vec3 specularColor = vec3(0, 0, 0);
+    if (material.specularity > 0) {
+        vec3 lightReflectionDir = reflect(dirLight.direction, normal);
+        float specularFactor = pow(max(dot(normalize(viewPos - fragWorldPos), lightReflectionDir), 0.0), material.specularity);
+
+        specularColor = specularFactor * dirLight.color;
+
+        if (material.useSpecularMap) {
+            specularColor *= vec3(texture(material.specularTex, texCoordinates));
+        }
     }
 
     return vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);
@@ -63,12 +69,17 @@ vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
     float diffuseFactor = max(dot(normal, lightDir), 0.0);
     vec3 diffuseColor = diffuseFactor * pLight.color * vec3(texture(material.diffuseTex, texCoordinates));
 
-    // direction is reversed so we get from light to vert, which is the direction needed for reflection to work
-    vec3 lightReflectionDir = reflect(-lightDir, normal);
-    float specularFactor = pow(max(dot(normalize(viewPos - fragWorldPos), lightReflectionDir), 0.0), material.specularity);
-    vec3 specularColor = specularFactor * pLight.color;
-    if (material.useSpecularMap) {
-        specularColor *= vec3(texture(material.specularTex, texCoordinates));
+    vec3 specularColor = vec3(0, 0, 0);
+    if (material.specularity > 0) {
+        // direction is reversed so we get from light to vert, which is the direction needed for reflection to work
+        vec3 lightReflectionDir = reflect(-lightDir, normal);
+        float specularFactor = pow(max(dot(normalize(viewPos - fragWorldPos), lightReflectionDir), 0.0), material.specularity);
+        
+        specularColor = specularFactor * pLight.color;
+
+        if (material.useSpecularMap) {
+            specularColor *= vec3(texture(material.specularTex, texCoordinates));
+        }
     }
 
     return vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);

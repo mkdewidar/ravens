@@ -3,8 +3,6 @@
 in vec3 fragWorldPos;
 in vec3 vertColor;
 in vec2 texCoordinates;
-// must be re-normalised here before use as fragment shader interpolation does not
-// necessarily maintain the length of the vector
 in vec3 normalDirection;
 
 struct DirectionalLight {
@@ -18,6 +16,7 @@ struct PointLight {
     vec3 position;
     vec3 color;
 
+    // set to 0 to have no attenuation
     float constantAttenuation;
     float linearAttenuation;
     float quadraticAttenuation;
@@ -42,51 +41,55 @@ uniform vec3 viewPos;
 
 out vec4 fragColor;
 
-vec4 colorUnderDirectionalLight(Material material, DirectionalLight dirLight, vec3 normal) {
+/*
+* normal: the normalised normal vector for this fragment
+* lightDirection: the incident (i.e pointing towards the fragment) direction vector for the light source
+*/
+vec3 diffuseColor(vec3 normal, vec3 lightDirection, vec3 lightColor, Material material, vec2 textureCoordinates) {
     // max used to detect when light is hitting at an angle greater than 90 degrees
     // and therefore treat it as dark, note this is different from ensuring the
     // backface of objects will be lit properly
-    float diffuseFactor = max(dot(normal, -dirLight.direction), 0.0);
-    vec3 diffuseColor = diffuseFactor * dirLight.color * vec3(texture(material.diffuseTex, texCoordinates));
+    float diffuseFactor = max(dot(normal, lightDirection), 0.0);
+    return diffuseFactor * lightColor * vec3(texture(material.diffuseTex, texCoordinates));
+}
 
+/*
+* normal: the normalised normal vector for this fragment
+* lightDirection: the incident (i.e pointing towards the fragment) direction vector for the light source
+* currentWorldPos: the world position of this fragment
+* viewpoint: the world position of the viewer
+*/
+vec3 specularColor(vec3 normal, vec3 lightDirection, vec3 lightColor, vec3 currentWorldPos, vec3 viewerPos, Material material, vec2 textureCoordinates) {
     vec3 specularColor = vec3(0, 0, 0);
-    if (material.specularity > 0) {
-        vec3 lightReflectionDir = reflect(dirLight.direction, normal);
-        float specularFactor = pow(max(dot(normalize(viewPos - fragWorldPos), lightReflectionDir), 0.0), material.specularity);
 
-        specularColor = specularFactor * dirLight.color;
+    if (material.specularity > 0) {
+        vec3 lightReflectionDir = reflect(lightDirection, normal);
+        float specularFactor = pow(max(dot(normalize(viewerPos - currentWorldPos), lightReflectionDir), 0.0), material.specularity);
+
+        specularColor = specularFactor * lightColor;
 
         if (material.useSpecularMap) {
             specularColor *= vec3(texture(material.specularTex, texCoordinates));
         }
     }
+
+    return specularColor;
+}
+
+vec4 colorUnderDirectionalLight(Material material, DirectionalLight dirLight, vec3 normal) {
+    vec3 diffuseColor = diffuseColor(normal, -dirLight.direction, dirLight.color, material, texCoordinates);
+    vec3 specularColor = specularColor(normal, dirLight.direction, dirLight.color, viewPos, fragWorldPos, material, texCoordinates);
 
     return vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);
 }
 
 vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
     vec3 fragmentToLight = pLight.position - fragWorldPos;
-
     // direction from vert to the light
     vec3 lightDir = normalize(fragmentToLight);
-    // max used to detect when light is hitting at an angle greater than 90 degrees
-    // and therefore treat it as dark, note this is different from ensuring the
-    // backface of objects will be lit properly
-    float diffuseFactor = max(dot(normal, lightDir), 0.0);
-    vec3 diffuseColor = diffuseFactor * pLight.color * vec3(texture(material.diffuseTex, texCoordinates));
 
-    vec3 specularColor = vec3(0, 0, 0);
-    if (material.specularity > 0) {
-        // direction is reversed so we get from light to vert, which is the direction needed for reflection to work
-        vec3 lightReflectionDir = reflect(-lightDir, normal);
-        float specularFactor = pow(max(dot(normalize(viewPos - fragWorldPos), lightReflectionDir), 0.0), material.specularity);
-
-        specularColor = specularFactor * pLight.color;
-
-        if (material.useSpecularMap) {
-            specularColor *= vec3(texture(material.specularTex, texCoordinates));
-        }
-    }
+    vec3 diffuseColor = diffuseColor(normal, lightDir, pLight.color, material, texCoordinates);
+    vec3 specularColor = specularColor(normal, -lightDir, pLight.color, viewPos, fragWorldPos, material, texCoordinates);
 
     float attenuation = 1;
     if (pLight.constantAttenuation != 0) {
@@ -100,6 +103,8 @@ vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
 }
 
 void main() {
+    // must be re-normalised here before use as fragment shader interpolation does not
+    // necessarily maintain the length of the vector
     vec3 normal = normalize(normalDirection);
 
     fragColor = colorUnderDirectionalLight(objectMaterial, directLight, normal);

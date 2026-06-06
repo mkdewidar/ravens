@@ -17,6 +17,10 @@ uniform DirectionalLight directLight;
 struct PointLight {
     vec3 position;
     vec3 color;
+
+    float constantAttenuation;
+    float linearAttenuation;
+    float quadraticAttenuation;
 };
 #define POINT_LIGHTS_COUNT 1
 uniform PointLight[POINT_LIGHTS_COUNT] pointLights;
@@ -61,8 +65,10 @@ vec4 colorUnderDirectionalLight(Material material, DirectionalLight dirLight, ve
 }
 
 vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
+    vec3 fragmentToLight = pLight.position - fragWorldPos;
+
     // direction from vert to the light
-    vec3 lightDir = normalize(pLight.position - fragWorldPos);
+    vec3 lightDir = normalize(fragmentToLight);
     // max used to detect when light is hitting at an angle greater than 90 degrees
     // and therefore treat it as dark, note this is different from ensuring the
     // backface of objects will be lit properly
@@ -74,7 +80,7 @@ vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
         // direction is reversed so we get from light to vert, which is the direction needed for reflection to work
         vec3 lightReflectionDir = reflect(-lightDir, normal);
         float specularFactor = pow(max(dot(normalize(viewPos - fragWorldPos), lightReflectionDir), 0.0), material.specularity);
-        
+
         specularColor = specularFactor * pLight.color;
 
         if (material.useSpecularMap) {
@@ -82,7 +88,15 @@ vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
         }
     }
 
-    return vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);
+    float attenuation = 1;
+    if (pLight.constantAttenuation != 0) {
+        attenuation = 1 /
+            (pLight.constantAttenuation +
+            (pLight.linearAttenuation * length(fragmentToLight)) +
+            (pLight.quadraticAttenuation * pow(length(fragmentToLight), 2)));
+    }
+
+    return vec4(vertColor * attenuation * (material.emissiveColor + diffuseColor + specularColor), 1.0);
 }
 
 void main() {

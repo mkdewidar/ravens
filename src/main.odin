@@ -236,7 +236,10 @@ main :: proc() {
 		1,
 		raw_data(&pointLightColor),
 	)
-	fmt.printfln("\tpoint light\n\t\tposition: %v\n\t\tcolor: %v", pointLightPosition, pointLightColor)
+    gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].constantAttenuation"), 1.0)
+    gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].linearAttenuation"), 0.07)
+    gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].quadraticAttenuation"), 0.017)
+    fmt.printfln("\tpoint light\n\t\tposition: %v\n\t\tcolor: %v", pointLightPosition, pointLightColor)
 
 	for !glfw.WindowShouldClose(window) {
 		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {

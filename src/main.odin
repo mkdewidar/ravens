@@ -9,6 +9,7 @@ import "core:strings"
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 import stb "vendor:stb/image"
+import "vendor:microui"
 
 /*
 this is OpenGL's coordinate system
@@ -68,6 +69,12 @@ main :: proc() {
 	}
 	defer glfw.DestroyWindow(window)
 
+	mui := new(microui.Context)
+	defer free(mui)
+	microui.init(mui)
+	mui.text_width = microui.default_atlas_text_width
+	mui.text_height = microui.default_atlas_text_height
+
 	glfw.MakeContextCurrent(window)
 	glfw.SetCursorPosCallback(window, mouse_pos_callback)
 
@@ -85,6 +92,12 @@ main :: proc() {
 	defer gl.DeleteProgram(glProgram)
 	gl.UseProgram(glProgram)
 
+	glUIProgram :=
+		gl.load_shaders("shaders/ui.vert", "shaders/ui.frag") or_else panic(
+			"Failed to load and compile UI shaders",
+		)
+	defer gl.DeleteProgram(glUIProgram)
+
 	// not to be confused with "vertex buffer object", this is a container telling OpenGL how to map
 	// "vertex buffer objects" onto the inputs of the vertex shader, but doesn't actually store the data itself.
 	vertexArrayObject: u32
@@ -98,6 +111,21 @@ main :: proc() {
     defer gl.DeleteTextures(1, &container2Diffuse)
     container2Specular := LoadTextureIntoUnit("assets/container2-specular.png", 2)
     defer gl.DeleteTextures(1, &container2Specular)
+
+	uiAtlasTexture: u32
+	gl.GenTextures(1, &uiAtlasTexture)
+	defer gl.DeleteTextures(1, &uiAtlasTexture)
+	gl.ActiveTexture(gl.TEXTURE3)
+	gl.BindTexture(gl.TEXTURE_2D, uiAtlasTexture)
+	// temporarily allow us to specify a texture that is 1 byte per element
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RED, microui.DEFAULT_ATLAS_WIDTH, microui.DEFAULT_ATLAS_HEIGHT, 0, gl.RED, gl.UNSIGNED_BYTE, &microui.default_atlas_alpha)
+	// back to the default it would be at
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
 
 	// these are just the standalone vert positions, we use an element buffer object to tell OpenGL how to draw
 	// triangles out of them
@@ -184,15 +212,6 @@ main :: proc() {
 	// uncomment for wireframe rendering
 	//     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 
-	// we enable the vertex shader attributes
-	// actually configuring them to point to the buffers is done in the render loop
-	gl.EnableVertexAttribArray(0)
-	gl.EnableVertexAttribArray(1)
-	gl.EnableVertexAttribArray(2)
-	gl.EnableVertexAttribArray(3)
-
-	gl.Enable(gl.DEPTH_TEST)
-
 	projectionMatrix := linalg.matrix4_perspective_f32(
 		linalg.to_radians(f32(45)),
 		WINDOW_ASPECT_RATIO,
@@ -241,7 +260,12 @@ main :: proc() {
     gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].quadraticAttenuation"), 0.017)
     fmt.printfln("\tpoint light\n\t\tposition: %v\n\t\tcolor: %v", pointLightPosition, pointLightColor)
 
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
 	for !glfw.WindowShouldClose(window) {
+		microui.begin(mui)
+
 		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
 			glfw.SetWindowShouldClose(window, true)
 		}
@@ -293,6 +317,28 @@ main :: proc() {
 				glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
 			}
 		}
+
+		cursorX, cursorY := glfw.GetCursorPos(window)
+		microui.input_mouse_move(mui, i32(cursorX), i32(cursorY))
+		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS {
+			microui.input_mouse_down(mui, i32(cursorX), i32(cursorY), microui.Mouse.LEFT)
+		}
+		if microui.begin_window(mui, "Menu", microui.Rect { 5, 5, 200, 100 }) {
+			if .SUBMIT in microui.button(mui, "Test") {
+				fmt.printfln("Button pressed")
+			}
+
+			microui.end_window(mui)
+		}
+		microui.end(mui)
+
+		// enable the scene program and enable the vertex shaders on it
+		gl.UseProgram(glProgram)
+		gl.EnableVertexAttribArray(0)
+		gl.EnableVertexAttribArray(1)
+		gl.EnableVertexAttribArray(2)
+		gl.EnableVertexAttribArray(3)
+		gl.Enable(gl.DEPTH_TEST)
 
 		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -400,6 +446,68 @@ main :: proc() {
 		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&pointLightColor))
 		gl.DrawArrays(gl.TRIANGLES, 0, 36)
 
+		// just to make sure next program only has the relevant attributes open which makes debugging slightly easier
+		gl.DisableVertexAttribArray(0)
+		gl.DisableVertexAttribArray(1)
+		gl.DisableVertexAttribArray(2)
+		gl.DisableVertexAttribArray(3)
+
+		// UI rendering
+		gl.UseProgram(glUIProgram)
+		{
+			gl.EnableVertexAttribArray(0)
+			defer gl.DisableVertexAttribArray(0)
+			gl.EnableVertexAttribArray(1)
+			defer gl.DisableVertexAttribArray(1)
+			gl.EnableVertexAttribArray(2)
+			defer gl.DisableVertexAttribArray(2)
+
+			gl.Disable(gl.DEPTH_TEST)
+
+			windowWidth, windowHeight := glfw.GetFramebufferSize(window)
+			uiProjectionMatrix := linalg.matrix_ortho3d_f32(0, f32(windowWidth), f32(windowHeight), 0, -1, 1)
+			gl.Uniform1i(gl.GetUniformLocation(glUIProgram, "atlas"), 3)
+			gl.UniformMatrix4fv(
+				gl.GetUniformLocation(glUIProgram, "projection"),
+				1,
+				false,
+				raw_data(&uiProjectionMatrix)
+			)
+			muiCommand : ^microui.Command
+			for commandType in microui.next_command_iterator(mui, &muiCommand) {
+				#partial switch command in commandType {
+				case ^microui.Command_Rect:
+					UIDrawTexturedQuad(
+						command.rect,
+						microui.default_atlas[microui.DEFAULT_ATLAS_WHITE],
+						command.color
+					)
+				case ^microui.Command_Text:
+					characterRect := microui.Rect{ command.pos.x, command.pos.y, 0, 0 }
+
+					for charRune in command.str {
+						atlasRect := microui.default_atlas[microui.DEFAULT_ATLAS_FONT + min(int(charRune), 127)]
+						characterRect.w = atlasRect.w
+						characterRect.h = atlasRect.h
+
+						UIDrawTexturedQuad(
+							characterRect,
+							atlasRect,
+							command.color
+						)
+
+						characterRect.x += characterRect.w
+					}
+				case ^microui.Command_Icon:
+					UIDrawTexturedQuad(
+						command.rect,
+						microui.default_atlas[command.id],
+						command.color
+					)
+				}
+			}
+		}
+
 		glfw.SwapBuffers(window)
 		glfw.PollEvents()
 	}
@@ -499,4 +607,34 @@ LoadTextureIntoUnit :: proc(filename: string, unit: u32) -> u32 {
     gl.GenerateMipmap(gl.TEXTURE_2D)
 
     return glTexture
+}
+
+UIDrawTexturedQuad :: proc(rect, textureRect: microui.Rect, color: microui.Color) {
+	quadBuffer: u32
+	gl.GenBuffers(1, &quadBuffer)
+	defer gl.DeleteBuffers(1, &quadBuffer)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, quadBuffer)
+
+	x, y, width, height := f32(rect.x), f32(rect.y), f32(rect.w), f32(rect.h)
+	texX, texY, texWidth, texHeight := f32(textureRect.x) / microui.DEFAULT_ATLAS_WIDTH, f32(textureRect.y) / microui.DEFAULT_ATLAS_HEIGHT, f32(textureRect.w) / microui.DEFAULT_ATLAS_WIDTH, f32(textureRect.h) / microui.DEFAULT_ATLAS_HEIGHT
+	r, g, b, a := f32(color.r) / 255, f32(color.g) / 255, f32(color.b) / 255, f32(color.a) / 255
+
+	quadData := [?]f32 {
+		// verts                 // color       // tex coords
+		x, y,                    r, g, b, a,    texX, texY,
+		x + width, y,            r, g, b, a,    texX + texWidth, texY,
+		x, y + height,           r, g, b, a,    texX, texY + texHeight,
+
+		x + width, y,            r, g, b, a,    texX + texWidth, texY,
+		x + width, y + height,   r, g, b, a,    texX + texWidth, texY + texHeight,
+		x, y + height,           r, g, b, a,    texX, texY + texHeight,
+	}
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(quadData), &quadData, gl.STATIC_DRAW)
+
+	gl.VertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
+	gl.VertexAttribPointer(1, 4, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 2 * size_of(f32))
+	gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
+
+	gl.DrawArrays(gl.TRIANGLES, 0, 6)
 }

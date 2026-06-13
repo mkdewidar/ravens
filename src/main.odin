@@ -43,6 +43,13 @@ LastMouseX, LastMouseY: f64 = 0, 0
 // the CAMERA_DEFAULT_FRONT direction
 CameraYaw, CameraPitch: f32 = -90, 0
 
+SettingsType :: struct {
+	wireframeModeEnabled: bool
+}
+Settings := SettingsType {
+	wireframeModeEnabled = false
+}
+
 main :: proc() {
 	glfw.SetErrorCallback(error_callback)
 
@@ -209,9 +216,6 @@ main :: proc() {
 	gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
 	gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
 
-	// uncomment for wireframe rendering
-	//     gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
-
 	projectionMatrix := linalg.matrix4_perspective_f32(
 		linalg.to_radians(f32(45)),
 		WINDOW_ASPECT_RATIO,
@@ -332,15 +336,8 @@ main :: proc() {
 		}
 
 		microui.begin(mui)
-		if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 0, 0 }) {
-			if .SUBMIT in microui.button(mui, "Test") {
-				fmt.printfln("Button pressed")
-			}
-
-			@static tmp: microui.Real
-			if .CHANGE in microui.slider(mui, &tmp, 0, 1) {
-				fmt.printfln("Value changed to %v", tmp)
-			}
+		if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 200, 100 }) {
+			microui.checkbox(mui, "Wireframe Mode", &Settings.wireframeModeEnabled)
 
 			microui.end_window(mui)
 		}
@@ -348,6 +345,7 @@ main :: proc() {
 
 		// enable the scene program and enable the vertex shaders on it
 		gl.UseProgram(glProgram)
+		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
 		gl.EnableVertexAttribArray(0)
 		gl.EnableVertexAttribArray(1)
 		gl.EnableVertexAttribArray(2)
@@ -469,6 +467,8 @@ main :: proc() {
 		// UI rendering
 		gl.UseProgram(glUIProgram)
 		{
+			gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+
 			gl.EnableVertexAttribArray(0)
 			defer gl.DisableVertexAttribArray(0)
 			gl.EnableVertexAttribArray(1)

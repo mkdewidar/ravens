@@ -264,7 +264,6 @@ main :: proc() {
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
 	for !glfw.WindowShouldClose(window) {
-		microui.begin(mui)
 
 		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
 			glfw.SetWindowShouldClose(window, true)
@@ -321,11 +320,26 @@ main :: proc() {
 		cursorX, cursorY := glfw.GetCursorPos(window)
 		microui.input_mouse_move(mui, i32(cursorX), i32(cursorY))
 		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS {
-			microui.input_mouse_down(mui, i32(cursorX), i32(cursorY), microui.Mouse.LEFT)
+			if microui.Mouse.LEFT not_in mui.mouse_down_bits {
+				microui.input_mouse_down(mui, i32(cursorX), i32(cursorY), microui.Mouse.LEFT)
+			}
 		}
-		if microui.begin_window(mui, "Menu", microui.Rect { 5, 5, 200, 100 }) {
+		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_LEFT) == glfw.RELEASE {
+			// the mouse button defaults to being released, so only process a release if it following a press
+			if microui.Mouse.LEFT in mui.mouse_down_bits {
+				microui.input_mouse_up(mui, i32(cursorX), i32(cursorY), microui.Mouse.LEFT)
+			}
+		}
+
+		microui.begin(mui)
+		if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 0, 0 }) {
 			if .SUBMIT in microui.button(mui, "Test") {
 				fmt.printfln("Button pressed")
+			}
+
+			@static tmp: microui.Real
+			if .CHANGE in microui.slider(mui, &tmp, 0, 1) {
+				fmt.printfln("Value changed to %v", tmp)
 			}
 
 			microui.end_window(mui)

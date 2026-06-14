@@ -409,18 +409,30 @@ main :: proc() {
 			raw_data(&viewMatrix),
 		)
 
-		modelMatrix := linalg.matrix4_translate_f32({0, 0, 5}) * 1
-		gl.UniformMatrix4fv(
-			gl.GetUniformLocation(glUnlitProgram, "model"),
-			1,
-			false,
-			raw_data(&modelMatrix),
-		)
+		modelMatrix: matrix[4, 4]f32
 
 		for node in sceneData.scene.nodes {
 			if node.mesh == nil {
 				// for now we only iterate and draw root level meshes
 			}
+
+			if node.has_matrix {
+				// the order of elements in gltf is the same as the order that Odin stores matrices
+				modelMatrix = transmute(matrix[4, 4]f32)node.matrix_
+			} else {
+				modelMatrix = linalg.matrix4_from_trs(
+					node.has_translation ? node.translation : 0,
+					node.has_rotation ? transmute(quaternion128)node.rotation : linalg.QUATERNIONF32_IDENTITY,
+					node.has_scale ? node.scale : 1,
+				)
+			}
+
+			gl.UniformMatrix4fv(
+				gl.GetUniformLocation(glUnlitProgram, "model"),
+				1,
+				false,
+				raw_data(&modelMatrix),
+			)
 
 			positionsAccessor := node.mesh.primitives[0].attributes[0].data
 			positionsGLBuffer := glBuffers[positionsAccessor.buffer_view.buffer]

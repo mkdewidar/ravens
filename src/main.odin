@@ -10,6 +10,7 @@ import gl "vendor:OpenGL"
 import "vendor:glfw"
 import stb "vendor:stb/image"
 import "vendor:microui"
+import "vendor:cgltf"
 
 /*
 this is OpenGL's coordinate system
@@ -44,10 +45,12 @@ LastMouseX, LastMouseY: f64 = 0, 0
 CameraYaw, CameraPitch: f32 = -90, 0
 
 SettingsType :: struct {
-	wireframeModeEnabled: bool
+	wireframeModeEnabled: bool,
+	scenePath: string,
 }
 Settings := SettingsType {
-	wireframeModeEnabled = false
+	wireframeModeEnabled = false,
+	scenePath = "assets/scene.gltf",
 }
 
 main :: proc() {
@@ -98,6 +101,12 @@ main :: proc() {
 		)
 	defer gl.DeleteProgram(glProgram)
 	gl.UseProgram(glProgram)
+
+	glUnlitProgram :=
+		gl.load_shaders("shaders/unlit.vert", "shaders/unlit.frag") or_else panic(
+			"Failed to load and compile unlit shaders",
+		)
+	defer gl.DeleteProgram(glUnlitProgram)
 
 	glUIProgram :=
 		gl.load_shaders("shaders/ui.vert", "shaders/ui.frag") or_else panic(
@@ -216,6 +225,30 @@ main :: proc() {
 	gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
 	gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
 
+	// a map of gltf buffer pointers to gl buffer IDs
+	glBuffers := make(map[^cgltf.buffer]u32)
+	defer delete(glBuffers)
+	sceneData := LoadScene(Settings.scenePath)
+	defer cgltf.free(sceneData)
+	if sceneData.scene != nil {
+		for buffer, i in sceneData.buffers {
+			bufferId: u32
+			gl.GenBuffers(1, &bufferId)
+			gl.BindBuffer(gl.ARRAY_BUFFER, bufferId)
+			gl.BufferData(gl.ARRAY_BUFFER, int(buffer.size), buffer.data, gl.STATIC_DRAW)
+
+			glBuffers[&sceneData.buffers[i]] = bufferId
+		}
+	}
+	defer {
+		for _, &glBuffer in glBuffers {
+			gl.DeleteBuffers(1, &glBuffer)
+		}
+	}
+	sceneVAO: u32
+	gl.GenVertexArrays(1, &sceneVAO)
+	defer gl.DeleteVertexArrays(1, &sceneVAO)
+
 	projectionMatrix := linalg.matrix4_perspective_f32(
 		linalg.to_radians(f32(45)),
 		WINDOW_ASPECT_RATIO,
@@ -263,6 +296,14 @@ main :: proc() {
     gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].linearAttenuation"), 0.07)
     gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].quadraticAttenuation"), 0.017)
     fmt.printfln("\tpoint light\n\t\tposition: %v\n\t\tcolor: %v", pointLightPosition, pointLightColor)
+
+	gl.UseProgram(glUnlitProgram)
+	gl.UniformMatrix4fv(
+		gl.GetUniformLocation(glUnlitProgram, "projection"),
+		1,
+		false,
+		raw_data(&projectionMatrix),
+	)
 
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -343,23 +384,67 @@ main :: proc() {
 		}
 		microui.end(mui)
 
-		// enable the scene program and enable the vertex shaders on it
-		gl.UseProgram(glProgram)
-		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
-		gl.EnableVertexAttribArray(0)
-		gl.EnableVertexAttribArray(1)
-		gl.EnableVertexAttribArray(2)
-		gl.EnableVertexAttribArray(3)
-		gl.Enable(gl.DEPTH_TEST)
-
 		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
 
 		viewMatrix := linalg.matrix4_look_at(
 			CameraPos,
 			CameraPos + CameraFront,
 			WORLD_UP
 		)
+
+		// gltf scene rendering
+		gl.UseProgram(glUnlitProgram)
+		gl.BindVertexArray(sceneVAO)
+		gl.EnableVertexAttribArray(0)
+
+		gl.VertexAttrib3f(1, 0.5, 0.5, 0.5)
+
+		gl.UniformMatrix4fv(
+			gl.GetUniformLocation(glUnlitProgram, "view"),
+			1,
+			false,
+			raw_data(&viewMatrix),
+		)
+
+		modelMatrix := linalg.matrix4_translate_f32({0, 0, 5}) * 1
+		gl.UniformMatrix4fv(
+			gl.GetUniformLocation(glUnlitProgram, "model"),
+			1,
+			false,
+			raw_data(&modelMatrix),
+		)
+
+		for node in sceneData.scene.nodes {
+			if node.mesh == nil {
+				// for now we only iterate and draw root level meshes
+			}
+
+			positionsAccessor := node.mesh.primitives[0].attributes[0].data
+			positionsGLBuffer := glBuffers[positionsAccessor.buffer_view.buffer]
+			gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
+			gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 0, uintptr(positionsAccessor.buffer_view.offset))
+
+			elementsAccessor := node.mesh.primitives[0].indices
+			elementsGLBuffer := glBuffers[node.mesh.primitives[0].indices.buffer_view.buffer]
+			gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementsGLBuffer)
+
+			gl.DrawElements(gl.TRIANGLES, i32(elementsAccessor.count), gl.UNSIGNED_SHORT, nil)
+		}
+
+		// back to the VAO we use for the rest of the program
+		gl.BindVertexArray(vertexArrayObject)
+
+		// enable the scene program and enable the vertex shaders on it
+		gl.UseProgram(glProgram)
+		gl.EnableVertexAttribArray(0)
+		gl.EnableVertexAttribArray(1)
+		gl.EnableVertexAttribArray(2)
+		gl.EnableVertexAttribArray(3)
+		gl.Enable(gl.DEPTH_TEST)
+
 		gl.UniformMatrix4fv(
 			gl.GetUniformLocation(glProgram, "view"),
 			1,
@@ -386,7 +471,7 @@ main :: proc() {
 
 		// now we draw the square
 		gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
-		modelMatrix :=
+		modelMatrix =
 			// rotates around the z at a rate of 50 degrees per second
 			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
 			// move it up so its above the cube
@@ -651,4 +736,24 @@ UIDrawTexturedQuad :: proc(rect, textureRect: microui.Rect, color: microui.Color
 	gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
 
 	gl.DrawArrays(gl.TRIANGLES, 0, 6)
+}
+
+LoadScene :: proc(path: string) -> ^cgltf.data {
+	scenePathCString := strings.clone_to_cstring(Settings.scenePath)
+	defer delete(scenePathCString)
+
+	sceneData, sceneParseResult := cgltf.parse_file(cgltf.options{}, scenePathCString)
+	if sceneParseResult != .success {
+		fmt.eprintfln("Failed to load scene file, returning empty scene")
+		return new(cgltf.data)
+	}
+
+	sceneParseResult = cgltf.load_buffers(cgltf.options{}, sceneData, nil)
+	if sceneParseResult != .success {
+		fmt.eprintfln("Failed to load scene buffers, returning empty scene")
+		cgltf.free(sceneData)
+		return new(cgltf.data)
+	}
+
+	return sceneData
 }

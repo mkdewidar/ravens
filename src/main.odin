@@ -400,8 +400,6 @@ main :: proc() {
 		gl.BindVertexArray(sceneVAO)
 		gl.EnableVertexAttribArray(0)
 
-		gl.VertexAttrib3f(1, 0.5, 0.5, 0.5)
-
 		gl.UniformMatrix4fv(
 			gl.GetUniformLocation(glUnlitProgram, "view"),
 			1,
@@ -434,10 +432,29 @@ main :: proc() {
 				raw_data(&modelMatrix),
 			)
 
-			positionsAccessor := node.mesh.primitives[0].attributes[0].data
-			positionsGLBuffer := glBuffers[positionsAccessor.buffer_view.buffer]
-			gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
-			gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 0, uintptr(positionsAccessor.buffer_view.offset))
+			// reset color in case the model doesn't have one
+			gl.DisableVertexAttribArray(1)
+			gl.VertexAttrib3f(1, 0.5, 0.5, 0.5)
+
+			for attribute in node.mesh.primitives[0].attributes {
+				#partial switch attribute.type {
+				case .position: {
+					positionsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+					gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
+					gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 0, uintptr(attribute.data.buffer_view.offset))
+				}
+				// only one color is supported
+				case .color: {
+					gl.EnableVertexAttribArray(1)
+
+					colorGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+					gl.BindBuffer(gl.ARRAY_BUFFER, colorGLBuffer)
+					gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 0, uintptr(attribute.data.buffer_view.offset))
+				}
+				}
+			}
 
 			elementsAccessor := node.mesh.primitives[0].indices
 			elementsGLBuffer := glBuffers[node.mesh.primitives[0].indices.buffer_view.buffer]

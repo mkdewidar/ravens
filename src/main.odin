@@ -144,56 +144,6 @@ main :: proc() {
 	// back to the default it would be at
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
 
-	cubeData := [?]f32{
-		// positions        // colors   // texture coords    // normal direction
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,                 0, 0, -1,
-		0.5, -0.5, -0.5,    1, 1, 1,   1, 0,                 0, 0, -1,
-		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,                 0, 0, -1,
-		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,                 0, 0, -1,
-		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,                 0, 0, -1,
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,                 0, 0, -1,
-
-		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,                 0, 0, 1,
-		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,                 0, 0, 1,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 1,                 0, 0, 1,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 1,                 0, 0, 1,
-		-0.5,  0.5,  0.5,   1, 1, 1,   0, 1,                 0, 0, 1,
-		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,                 0, 0, 1,
-
-		-0.5,  0.5,  0.5,   1, 1, 1,   1, 0,                 -1, 0, 0,
-		-0.5,  0.5, -0.5,   1, 1, 1,   1, 1,                 -1, 0, 0,
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,                 -1, 0, 0,
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,                 -1, 0, 0,
-		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,                 -1, 0, 0,
-		-0.5,  0.5,  0.5,   1, 1, 1,   1, 0,                 -1, 0, 0,
-
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,                 1, 0, 0,
-		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,                 1, 0, 0,
-		0.5, -0.5, -0.5,    1, 1, 1,   0, 1,                 1, 0, 0,
-		0.5, -0.5, -0.5,    1, 1, 1,   0, 1,                 1, 0, 0,
-		0.5, -0.5,  0.5,    1, 1, 1,   0, 0,                 1, 0, 0,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,                 1, 0, 0,
-
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,                 0, -1, 0,
-		0.5, -0.5, -0.5,    1, 1, 1,   1, 1,                 0, -1, 0,
-		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,                 0, -1, 0,
-		0.5, -0.5,  0.5,    1, 1, 1,   1, 0,                 0, -1, 0,
-		-0.5, -0.5,  0.5,   1, 1, 1,   0, 0,                 0, -1, 0,
-		-0.5, -0.5, -0.5,   1, 1, 1,   0, 1,                 0, -1, 0,
-
-		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,                 0, 1, 0,
-		0.5,  0.5, -0.5,    1, 1, 1,   1, 1,                 0, 1, 0,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,                 0, 1, 0,
-		0.5,  0.5,  0.5,    1, 1, 1,   1, 0,                 0, 1, 0,
-		-0.5,  0.5,  0.5,   1, 1, 1,   0, 0,                 0, 1, 0,
-		-0.5,  0.5, -0.5,   1, 1, 1,   0, 1,                 0, 1, 0,
-	}
-	cubeVertexBufferObject: u32
-	gl.GenBuffers(1, &cubeVertexBufferObject)
-	defer gl.DeleteBuffers(1, &cubeVertexBufferObject)
-	gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
-	gl.BufferData(gl.ARRAY_BUFFER, size_of(cubeData), &cubeData, gl.STATIC_DRAW)
-
 	// a map of gltf buffer pointers to gl buffer IDs
 	glBuffers := make(map[^cgltf.buffer]u32)
 	defer delete(glBuffers)
@@ -219,6 +169,7 @@ main :: proc() {
 	defer gl.DeleteVertexArrays(1, &sceneVAO)
 
 	squareNodeIndex, _ := slice.linear_search_proc(sceneData.nodes, proc(i: cgltf.node) -> bool { return string(i.name) == string("square") })
+	cubeNodeIndex, _ := slice.linear_search_proc(sceneData.nodes, proc(i: cgltf.node) -> bool { return string(i.name) == string("cube") })
 
 	projectionMatrix := linalg.matrix4_perspective_f32(
 		linalg.to_radians(f32(45)),
@@ -484,41 +435,9 @@ main :: proc() {
 			false,
 			raw_data(&modelMatrix),
 		)
-		squareMesh := sceneData.nodes[squareNodeIndex].mesh.primitives[0]
-		for attribute in squareMesh.attributes {
-			#partial switch attribute.type {
-			case .position: {
-				positionsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-				gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
-				gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
-			}
-			case .color: {
-				colorGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-				gl.BindBuffer(gl.ARRAY_BUFFER, colorGLBuffer)
-				gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
-			}
-			case .texcoord: {
-				texCoordGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-				gl.BindBuffer(gl.ARRAY_BUFFER, texCoordGLBuffer)
-				gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
-			}
-			case .normal: {
-				normalsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-				gl.BindBuffer(gl.ARRAY_BUFFER, normalsGLBuffer)
-				gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
-			}
-			}
-		}
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, glBuffers[squareMesh.indices.buffer_view.buffer])
-
-		gl.DrawElements(gl.TRIANGLES, i32(squareMesh.indices.count), gl.UNSIGNED_INT, rawptr(uintptr(squareMesh.indices.offset + squareMesh.indices.buffer_view.offset)))
+		RenderPrimitive(&glBuffers, &sceneData.nodes[squareNodeIndex].mesh.primitives[0])
 
 		// now we draw the central spinning cube
-		gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)
 		modelMatrix =
 			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
 			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0}) *
@@ -530,12 +449,7 @@ main :: proc() {
 			raw_data(&modelMatrix),
 		)
         gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 16)
-		// we must redo this so it points to the new buffer
-		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 0)
-		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 3 * size_of(f32))
-		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 6 * size_of(f32))
-		gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 8 * size_of(f32))
-		gl.DrawArrays(gl.TRIANGLES, 0, 36)
+		RenderPrimitive(&glBuffers, &sceneData.nodes[cubeNodeIndex].mesh.primitives[0])
 
 		// now we draw some random cubes around the scene
 		for i in 0..<10 {
@@ -553,7 +467,7 @@ main :: proc() {
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 1)
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 1)
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.specularTex"), 2)
-			gl.DrawArrays(gl.TRIANGLES, 0, 36)
+			RenderPrimitive(&glBuffers, &sceneData.nodes[cubeNodeIndex].mesh.primitives[0])
 		}
 
 		// now we draw the point light as a small cube
@@ -568,7 +482,7 @@ main :: proc() {
 			raw_data(&modelMatrix),
 		)
 		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&pointLightColor))
-		gl.DrawArrays(gl.TRIANGLES, 0, 36)
+		RenderPrimitive(&glBuffers, &sceneData.nodes[cubeNodeIndex].mesh.primitives[0])
 
 		// just to make sure next program only has the relevant attributes open which makes debugging slightly easier
 		gl.DisableVertexAttribArray(0)
@@ -783,4 +697,48 @@ LoadScene :: proc(path: string) -> ^cgltf.data {
 	}
 
 	return sceneData
+}
+
+RenderPrimitive :: proc(glBuffers: ^map[^cgltf.buffer]u32, mesh: ^cgltf.primitive) {
+	// the number of "things" to draw, this will either be the number of elements in the indices structure,
+	// or the number of vertices to draw if we're not using indices.
+	drawCount: i32 = 0
+
+	for attribute in mesh.attributes {
+		#partial switch attribute.type {
+		case .position: {
+			positionsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+			drawCount = mesh.indices == nil ? i32(attribute.data.count) : i32(mesh.indices.count)
+
+			gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
+			gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+		}
+		case .color: {
+			colorGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+			gl.BindBuffer(gl.ARRAY_BUFFER, colorGLBuffer)
+			gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+		}
+		case .texcoord: {
+			texCoordGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+			gl.BindBuffer(gl.ARRAY_BUFFER, texCoordGLBuffer)
+			gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+		}
+		case .normal: {
+			normalsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+			gl.BindBuffer(gl.ARRAY_BUFFER, normalsGLBuffer)
+			gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+		}
+		}
+	}
+
+	if mesh.indices != nil {
+		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, glBuffers[mesh.indices.buffer_view.buffer])
+		gl.DrawElements(gl.TRIANGLES, drawCount, gl.UNSIGNED_INT, rawptr(uintptr(mesh.indices.offset + mesh.indices.buffer_view.offset)))
+	} else {
+		gl.DrawArrays(gl.TRIANGLES, 0, drawCount)
+	}
 }

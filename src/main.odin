@@ -12,6 +12,7 @@ import stb "vendor:stb/image"
 import "vendor:microui"
 import "vendor:cgltf"
 import slice "core:slice"
+import filepath "core:path/filepath"
 
 /*
 this is OpenGL's coordinate system
@@ -122,17 +123,10 @@ main :: proc() {
 	defer gl.DeleteVertexArrays(1, &vertexArrayObject)
 	gl.BindVertexArray(vertexArrayObject)
 
-    containerTexture := LoadTextureIntoUnit("assets/container-texture.jpg", 0)
-    defer gl.DeleteTextures(1, &containerTexture)
-    container2Diffuse := LoadTextureIntoUnit("assets/container2-diffuse.png", 1)
-    defer gl.DeleteTextures(1, &container2Diffuse)
-    container2Specular := LoadTextureIntoUnit("assets/container2-specular.png", 2)
-    defer gl.DeleteTextures(1, &container2Specular)
-
 	uiAtlasTexture: u32
 	gl.GenTextures(1, &uiAtlasTexture)
 	defer gl.DeleteTextures(1, &uiAtlasTexture)
-	gl.ActiveTexture(gl.TEXTURE3)
+	gl.ActiveTexture(gl.TEXTURE16)
 	gl.BindTexture(gl.TEXTURE_2D, uiAtlasTexture)
 	// temporarily allow us to specify a texture that is 1 byte per element
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -147,6 +141,9 @@ main :: proc() {
 	// a map of gltf buffer pointers to gl buffer IDs
 	glBuffers := make(map[^cgltf.buffer]u32)
 	defer delete(glBuffers)
+	// a map of gltf texture pointers to gl texture IDs
+	glTextures := make(map[^cgltf.texture]u32)
+	defer delete(glTextures)
 	sceneData := LoadScene(Settings.scenePath)
 	defer cgltf.free(sceneData)
 	if sceneData.scene != nil {
@@ -158,10 +155,18 @@ main :: proc() {
 
 			glBuffers[&sceneData.buffers[i]] = bufferId
 		}
+
+		for &texture, i in sceneData.textures {
+			glTextures[&sceneData.textures[i]] = LoadTextureIntoUnit(Settings.scenePath, &texture, u32(i))
+		}
 	}
 	defer {
 		for _, &glBuffer in glBuffers {
 			gl.DeleteBuffers(1, &glBuffer)
+		}
+
+		for _, &glTexture in glTextures {
+			gl.DeleteTextures(1, &glTexture)
 		}
 	}
 	sceneVAO: u32
@@ -435,7 +440,7 @@ main :: proc() {
 			false,
 			raw_data(&modelMatrix),
 		)
-		RenderPrimitive(&glBuffers, &sceneData.nodes[squareNodeIndex].mesh.primitives[0])
+		RenderMesh(&glBuffers, sceneData.nodes[squareNodeIndex].mesh)
 
 		// now we draw the central spinning cube
 		modelMatrix =
@@ -449,7 +454,7 @@ main :: proc() {
 			raw_data(&modelMatrix),
 		)
         gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 16)
-		RenderPrimitive(&glBuffers, &sceneData.nodes[cubeNodeIndex].mesh.primitives[0])
+		RenderMesh(&glBuffers, sceneData.nodes[cubeNodeIndex].mesh)
 
 		// now we draw some random cubes around the scene
 		for i in 0..<10 {
@@ -467,7 +472,7 @@ main :: proc() {
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 1)
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 1)
             gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.specularTex"), 2)
-			RenderPrimitive(&glBuffers, &sceneData.nodes[cubeNodeIndex].mesh.primitives[0])
+			RenderMesh(&glBuffers, sceneData.nodes[cubeNodeIndex].mesh)
 		}
 
 		// now we draw the point light as a small cube
@@ -482,7 +487,7 @@ main :: proc() {
 			raw_data(&modelMatrix),
 		)
 		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&pointLightColor))
-		RenderPrimitive(&glBuffers, &sceneData.nodes[cubeNodeIndex].mesh.primitives[0])
+		RenderMesh(&glBuffers, sceneData.nodes[cubeNodeIndex].mesh)
 
 		// just to make sure next program only has the relevant attributes open which makes debugging slightly easier
 		gl.DisableVertexAttribArray(0)
@@ -506,7 +511,7 @@ main :: proc() {
 
 			windowWidth, windowHeight := glfw.GetFramebufferSize(window)
 			uiProjectionMatrix := linalg.matrix_ortho3d_f32(0, f32(windowWidth), f32(windowHeight), 0, -1, 1)
-			gl.Uniform1i(gl.GetUniformLocation(glUIProgram, "atlas"), 3)
+			gl.Uniform1i(gl.GetUniformLocation(glUIProgram, "atlas"), 16)
 			gl.UniformMatrix4fv(
 				gl.GetUniformLocation(glUIProgram, "projection"),
 				1,
@@ -605,12 +610,17 @@ mouse_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: c.double) {
 	)
 }
 
-LoadTextureIntoUnit :: proc(filename: string, unit: u32) -> u32 {
+LoadTextureIntoUnit :: proc(gltfPath: string, texture: ^cgltf.texture, unit: u32) -> u32 {
     textureWidth, textureHeight, textureChannelCount: c.int
-    filenameCString := strings.clone_to_cstring(filename)
-    defer delete(filenameCString)
+
+	texturePath := filepath.join({ filepath.dir(gltfPath), string(texture.image_.uri) }) or_else
+		panic(fmt.tprintfln("Failed to load texture %v", texture.image_.uri))
+	defer delete(texturePath)
+
+    textureCString := strings.clone_to_cstring(texturePath)
+    defer delete(textureCString)
     textureBytes := stb.load(
-        filenameCString,
+        textureCString,
         &textureWidth,
         &textureHeight,
         &textureChannelCount,
@@ -689,7 +699,7 @@ LoadScene :: proc(path: string) -> ^cgltf.data {
 		return new(cgltf.data)
 	}
 
-	sceneParseResult = cgltf.load_buffers(cgltf.options{}, sceneData, nil)
+	sceneParseResult = cgltf.load_buffers(cgltf.options{}, sceneData, scenePathCString)
 	if sceneParseResult != .success {
 		fmt.eprintfln("Failed to load scene buffers, returning empty scene")
 		cgltf.free(sceneData)
@@ -699,17 +709,19 @@ LoadScene :: proc(path: string) -> ^cgltf.data {
 	return sceneData
 }
 
-RenderPrimitive :: proc(glBuffers: ^map[^cgltf.buffer]u32, mesh: ^cgltf.primitive) {
+RenderMesh :: proc(glBuffers: ^map[^cgltf.buffer]u32, mesh: ^cgltf.mesh) {
 	// the number of "things" to draw, this will either be the number of elements in the indices structure,
 	// or the number of vertices to draw if we're not using indices.
 	drawCount: i32 = 0
 
-	for attribute in mesh.attributes {
+	primitive := mesh.primitives[0]
+
+	for attribute in primitive.attributes {
 		#partial switch attribute.type {
 		case .position: {
 			positionsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
 
-			drawCount = mesh.indices == nil ? i32(attribute.data.count) : i32(mesh.indices.count)
+			drawCount = primitive.indices == nil ? i32(attribute.data.count) : i32(primitive.indices.count)
 
 			gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
 			gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
@@ -735,9 +747,9 @@ RenderPrimitive :: proc(glBuffers: ^map[^cgltf.buffer]u32, mesh: ^cgltf.primitiv
 		}
 	}
 
-	if mesh.indices != nil {
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, glBuffers[mesh.indices.buffer_view.buffer])
-		gl.DrawElements(gl.TRIANGLES, drawCount, gl.UNSIGNED_INT, rawptr(uintptr(mesh.indices.offset + mesh.indices.buffer_view.offset)))
+	if primitive.indices != nil {
+		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, glBuffers[primitive.indices.buffer_view.buffer])
+		gl.DrawElements(gl.TRIANGLES, drawCount, gl.UNSIGNED_INT, rawptr(uintptr(primitive.indices.offset + primitive.indices.buffer_view.offset)))
 	} else {
 		gl.DrawArrays(gl.TRIANGLES, 0, drawCount)
 	}

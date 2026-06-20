@@ -11,6 +11,7 @@ import "vendor:glfw"
 import stb "vendor:stb/image"
 import "vendor:microui"
 import "vendor:cgltf"
+import slice "core:slice"
 
 /*
 this is OpenGL's coordinate system
@@ -143,38 +144,6 @@ main :: proc() {
 	// back to the default it would be at
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
 
-	// these are just the standalone vert positions, we use an element buffer object to tell OpenGL how to draw
-	// triangles out of them
-	squareData := [?]f32{
-		// positions      // colors       // texture coords    // normal direction
-		0.5, 0.5, 0,       1, 0, 0,       1, 1,                0, 0, 1,
-		0.5, -0.5, 0,      0, 1, 0,       1, 0,                0, 0, 1,
-		-0.5, -0.5, 0,     0, 0, 1,       0, 0,                0, 0, 1,
-		-0.5, 0.5, 0,      1, 1, 0,       0, 1,                0, 0, 1,
-	}
-	// these index into the verts mentioned above, telling OpenGL how to make triangles out of those vertices
-	squareVertIndices := [?]u32{
-		0, 1, 3,
-		1, 2, 3
-	}
-	// not to be confused with "vertex array object", this object contains the actual vertices, but doesn't
-	// describe how they are mapped to the input variables in the vertex shader.
-	vertexBufferObject: u32
-	gl.GenBuffers(1, &vertexBufferObject)
-	defer gl.DeleteBuffers(1, &vertexBufferObject)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
-	gl.BufferData(gl.ARRAY_BUFFER, size_of(squareData), &squareData, gl.STATIC_DRAW)
-	elementBufferObject: u32
-	gl.GenBuffers(1, &elementBufferObject)
-	defer gl.DeleteBuffers(1, &elementBufferObject)
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBufferObject)
-	gl.BufferData(
-		gl.ELEMENT_ARRAY_BUFFER,
-		size_of(squareVertIndices),
-		&squareVertIndices,
-		gl.STATIC_DRAW,
-	)
-
 	cubeData := [?]f32{
 		// positions        // colors   // texture coords    // normal direction
 		-0.5, -0.5, -0.5,   1, 1, 1,   0, 0,                 0, 0, -1,
@@ -248,6 +217,8 @@ main :: proc() {
 	sceneVAO: u32
 	gl.GenVertexArrays(1, &sceneVAO)
 	defer gl.DeleteVertexArrays(1, &sceneVAO)
+
+	squareNodeIndex, _ := slice.linear_search_proc(sceneData.nodes, proc(i: cgltf.node) -> bool { return string(i.name) == string("square") })
 
 	projectionMatrix := linalg.matrix4_perspective_f32(
 		linalg.to_radians(f32(45)),
@@ -410,8 +381,9 @@ main :: proc() {
 		modelMatrix: matrix[4, 4]f32
 
 		for node in sceneData.scene.nodes {
-			if node.mesh == nil {
-				// for now we only iterate and draw root level meshes
+			if node.mesh == nil || node.name != nil {
+				// for now leaving named and non-root nodes to be rendered separately
+				continue
 			}
 
 			if node.has_matrix {
@@ -499,7 +471,6 @@ main :: proc() {
 		// doing the operations in this order results in a neat rotate around a point effect
 
 		// now we draw the square
-		gl.BindBuffer(gl.ARRAY_BUFFER, vertexBufferObject)
 		modelMatrix =
 			// rotates around the z at a rate of 50 degrees per second
 			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
@@ -513,11 +484,38 @@ main :: proc() {
 			false,
 			raw_data(&modelMatrix),
 		)
-		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 0)
-		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 3 * size_of(f32))
-		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 6 * size_of(f32))
-		gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, 11 * size_of(f32), 8 * size_of(f32))
-		gl.DrawElements(gl.TRIANGLES, len(squareVertIndices), gl.UNSIGNED_INT, nil)
+		squareMesh := sceneData.nodes[squareNodeIndex].mesh.primitives[0]
+		for attribute in squareMesh.attributes {
+			#partial switch attribute.type {
+			case .position: {
+				positionsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+				gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
+				gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+			}
+			case .color: {
+				colorGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+				gl.BindBuffer(gl.ARRAY_BUFFER, colorGLBuffer)
+				gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+			}
+			case .texcoord: {
+				texCoordGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+				gl.BindBuffer(gl.ARRAY_BUFFER, texCoordGLBuffer)
+				gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+			}
+			case .normal: {
+				normalsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
+
+				gl.BindBuffer(gl.ARRAY_BUFFER, normalsGLBuffer)
+				gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+			}
+			}
+		}
+		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, glBuffers[squareMesh.indices.buffer_view.buffer])
+
+		gl.DrawElements(gl.TRIANGLES, i32(squareMesh.indices.count), gl.UNSIGNED_INT, rawptr(uintptr(squareMesh.indices.offset + squareMesh.indices.buffer_view.offset)))
 
 		// now we draw the central spinning cube
 		gl.BindBuffer(gl.ARRAY_BUFFER, cubeVertexBufferObject)

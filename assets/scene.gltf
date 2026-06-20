@@ -14,6 +14,10 @@
         {
             "mesh" : 0,
             "translation": [0, 0, 3]
+        },
+        {
+            "name": "square",
+            "mesh" : 1
         }
     ],
 
@@ -26,17 +30,35 @@
                 },
                 "indices" : 0
             } ]
+        },
+        {
+            "primitives" : [ {
+                "attributes" : {
+                    "POSITION" : 3,
+                    "COLOR_0": 4,
+                    "TEXCOORD_0": 5,
+                    "NORMAL": 6
+                },
+                "indices" : 7
+            } ]
         }
     ],
 
     "buffers" : [
         {
+            "name" : "triangle pos and indices",
             "uri" : "data:application/octet-stream;base64,AAABAAIAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAA=",
             "byteLength" : 44
         },
         {
+            "name": "triangle colors",
             "uri" : "data:application/octet-stream;base64,AACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/",
             "byteLength" : 36
+        },
+        {
+            "name" : "square data",
+            "uri": "data:application/octet-stream;base64,AAAAPwAAAD8AAAAAAACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAgD8AAAA/AAAAvwAAAAAAAAAAAACAPwAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAL8AAAC/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAvwAAAD8AAAAAAACAPwAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAQAAAAMAAAABAAAAAgAAAAMAAAA=",
+            "byteLength": 200
         }
     ],
     "bufferViews" : [
@@ -57,6 +79,17 @@
             "byteOffset" : 0,
             "byteLength" : 36,
             "target" : 34962
+        },
+        {
+            "buffer": 2,
+            "byteOffset": 0,
+            "byteLength": 176,
+            "byteStride": 44
+        },
+        {
+            "buffer" : 2,
+            "byteOffset" : 176,
+            "byteLength" : 24
         }
     ],
     "accessors" : [
@@ -86,6 +119,56 @@
             "type" : "VEC3",
             "max" : [ 1.0, 1.0, 0.0 ],
             "min" : [ 0.0, 0.0, 0.0 ]
+        },
+        {
+            "name": "square pos",
+            "bufferView" : 3,
+            "byteOffset" : 0,
+            "componentType" : 5126,
+            "count" : 4,
+            "type" : "VEC3",
+            "max" : [ 1.0, 1.0, 1.0 ],
+            "min" : [ 0.0, 0.0, 0.0 ]
+        },
+        {
+            "name": "square colors",
+            "bufferView" : 3,
+            "byteOffset" : 12,
+            "componentType" : 5126,
+            "count" : 4,
+            "type" : "VEC3",
+            "max" : [ 1.0, 1.0, 1.0 ],
+            "min" : [ 0.0, 0.0, 0.0 ]
+        },
+        {
+            "name": "square texcoords",
+            "bufferView" : 3,
+            "byteOffset" : 24,
+            "componentType" : 5126,
+            "count" : 4,
+            "type" : "VEC2",
+            "max" : [ 1.0, 1.0 ],
+            "min" : [ 0.0, 0.0 ]
+        },
+        {
+            "name": "square normals",
+            "bufferView" : 3,
+            "byteOffset" : 32,
+            "componentType" : 5126,
+            "count" : 4,
+            "type" : "VEC3",
+            "max" : [ 1.0, 1.0, 1.0 ],
+            "min" : [ 0.0, 0.0, 0.0 ]
+        },
+        {
+            "name": "square indices",
+            "bufferView" : 4,
+            "byteOffset" : 0,
+            "componentType" : 5125,
+            "count" : 6,
+            "type" : "SCALAR",
+            "max" : [ 3 ],
+            "min" : [ 0 ]
         }
     ]
 }

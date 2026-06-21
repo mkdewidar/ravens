@@ -2,11 +2,14 @@
     "asset" : {
         "version" : "2.0"
     },
+    "extensionsUsed": [
+        "KHR_materials_pbrSpecularGlossiness"
+    ],
 
     "scene": 0,
     "scenes" : [
         {
-            "nodes" : [ 0 ]
+            "nodes" : [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 ]
         }
     ],
 
@@ -17,13 +20,105 @@
         },
         {
             "name": "square",
-            "mesh" : 1,
-            "material": 0
+            "mesh" : 1
         },
         {
             "name": "cube",
+            "mesh" : 2
+        },
+        {
             "mesh" : 2,
-            "material": 1
+            "matrix": [
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                -5, 2.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.9846981, 0.16123185, -0.066135354, 0,
+                -0.134228528, 0.9437431, 0.3022112, 0,
+                0.11114087, -0.28870955, 0.950944, 0,
+                -2, 2.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.9406381, 0.33002007, -0.07928831, 0,
+                -0.22526383, 0.78175789, 0.58147293, 0,
+                0.25388202, -0.52909487, 0.80969286, 0,
+                1, 2.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.87313426, 0.48600632, -0.037872449, 0,
+                -0.26212573, 0.53358203, 0.80410218, 0,
+                0.41100675, -0.6921619, 0.59328353, 0,
+                4, 2.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.79032868, 0.61037624, 0.053116947, 0,
+                -0.240368038, 0.22914946, 0.94324636, 0,
+                0.56356347, -0.75824225, 0.32781833, 0,
+                7, 2.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.7022087, 0.68812919, 0.18270516, 0,
+                -0.16261509, -0.09482108, 0.98212284, 0,
+                0.6931517, -0.71936578, 0.045316026, 0,
+                -5, 5.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.6194028, 0.7098869, 0.33526185, 0,
+                -0.03824511, -0.39925379, 0.91604245, 0,
+                0.78414106, -0.58022153, -0.220149338, 0,
+                -2, 5.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.55189914, 0.673025, 0.4923866, 0,
+                0.117741078, -0.6474295, 0.75297546, 0,
+                0.82555699, -0.35759243, -0.43655854, 0,
+                1, 5.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.50783908, 0.58198977, 0.6351277, 0,
+                0.2865293, -0.80941474, 0.5125902, 0,
+                0.81240398, -0.07833071, -0.57780969, 0,
+                4, 5.5, 0, 1
+            ]
+        },
+        {
+            "mesh" : 2,
+            "matrix": [
+                0.49253726, 0.44776115, 0.74626863, 0,
+                0.4477612, -0.86567163, 0.22388051, 0,
+                0.74626863, 0.22388066, -0.62686568, 0,
+                7, 5.5, 0, 1
+            ]
+        },
+        {
+            "name": "emissive cube",
+            "mesh" : 3
         }
     ],
 
@@ -34,7 +129,8 @@
                     "POSITION" : 1,
                     "COLOR_0": 2
                 },
-                "indices" : 0
+                "indices" : 0,
+                "material": 3
             } ]
         },
         {
@@ -45,7 +141,8 @@
                     "TEXCOORD_0": 5,
                     "NORMAL": 6
                 },
-                "indices" : 7
+                "indices" : 7,
+                "material": 0
             } ]
         },
         {
@@ -55,7 +152,19 @@
                     "COLOR_0": 9,
                     "TEXCOORD_0": 10,
                     "NORMAL": 11
-                }
+                },
+                "material": 1
+            } ]
+        },
+        {
+            "primitives" : [ {
+                "attributes" : {
+                    "POSITION" : 8,
+                    "COLOR_0": 9,
+                    "TEXCOORD_0": 10,
+                    "NORMAL": 11
+                },
+                "material": 2
             } ]
         }
     ],
@@ -241,12 +350,36 @@
     "materials": [
         {
             "name": "container-1",
-            "pbrMetallicRoughness": {
-                "baseColorTexture": { "index": 0 }
+            "extensions": {
+                "KHR_materials_pbrSpecularGlossiness": {
+                    "diffuseTexture": { "index": 0 }
+                }
             }
         },
         {
-            "name": "container-2"
+            "name": "container-2",
+            "extensions": {
+                "KHR_materials_pbrSpecularGlossiness": {
+                    "diffuseTexture": { "index": 1 },
+                    "glossinessFactor": 0.5,
+                    "specularGlossinessTexture": { "index": 2 }
+                }
+            }
+        },
+        {
+            "name": "emissive-container-2",
+            "emissiveFactor": [0, 0, 1],
+            "extensions": {
+                "KHR_materials_pbrSpecularGlossiness": {
+                    "diffuseTexture": { "index": 1 },
+                    "glossinessFactor": 1.0,
+                    "specularGlossinessTexture": { "index": 2 }
+                }
+            }
+        },
+        {
+            "name": "unlit",
+            "emissiveFactor": [1, 1, 1]
         }
     ],
     "textures": [

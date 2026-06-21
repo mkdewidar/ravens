@@ -46,6 +46,9 @@ LastMouseX, LastMouseY: f64 = 0, 0
 // the CAMERA_DEFAULT_FRONT direction
 CameraYaw, CameraPitch: f32 = -90, 0
 
+// the GL ID of textures which are solid color and used as placeholders when we don't need a texture
+WhiteGLTexture: u32
+
 SettingsType :: struct {
 	wireframeModeEnabled: bool,
 	scenePath: string,
@@ -104,40 +107,6 @@ main :: proc() {
 	defer gl.DeleteProgram(glProgram)
 	gl.UseProgram(glProgram)
 
-	glUnlitProgram :=
-		gl.load_shaders("shaders/unlit.vert", "shaders/unlit.frag") or_else panic(
-			"Failed to load and compile unlit shaders",
-		)
-	defer gl.DeleteProgram(glUnlitProgram)
-
-	glUIProgram :=
-		gl.load_shaders("shaders/ui.vert", "shaders/ui.frag") or_else panic(
-			"Failed to load and compile UI shaders",
-		)
-	defer gl.DeleteProgram(glUIProgram)
-
-	// not to be confused with "vertex buffer object", this is a container telling OpenGL how to map
-	// "vertex buffer objects" onto the inputs of the vertex shader, but doesn't actually store the data itself.
-	vertexArrayObject: u32
-	gl.GenVertexArrays(1, &vertexArrayObject)
-	defer gl.DeleteVertexArrays(1, &vertexArrayObject)
-	gl.BindVertexArray(vertexArrayObject)
-
-	uiAtlasTexture: u32
-	gl.GenTextures(1, &uiAtlasTexture)
-	defer gl.DeleteTextures(1, &uiAtlasTexture)
-	gl.ActiveTexture(gl.TEXTURE16)
-	gl.BindTexture(gl.TEXTURE_2D, uiAtlasTexture)
-	// temporarily allow us to specify a texture that is 1 byte per element
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RED, microui.DEFAULT_ATLAS_WIDTH, microui.DEFAULT_ATLAS_HEIGHT, 0, gl.RED, gl.UNSIGNED_BYTE, &microui.default_atlas_alpha)
-	// back to the default it would be at
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
-
 	// a map of gltf buffer pointers to gl buffer IDs
 	glBuffers := make(map[^cgltf.buffer]u32)
 	defer delete(glBuffers)
@@ -157,7 +126,7 @@ main :: proc() {
 		}
 
 		for &texture, i in sceneData.textures {
-			glTextures[&sceneData.textures[i]] = LoadTextureIntoUnit(Settings.scenePath, &texture, u32(i))
+			glTextures[&sceneData.textures[i]] = LoadTexture(Settings.scenePath, &texture)
 		}
 	}
 	defer {
@@ -173,8 +142,11 @@ main :: proc() {
 	gl.GenVertexArrays(1, &sceneVAO)
 	defer gl.DeleteVertexArrays(1, &sceneVAO)
 
-	squareNodeIndex, _ := slice.linear_search_proc(sceneData.nodes, proc(i: cgltf.node) -> bool { return string(i.name) == string("square") })
-	cubeNodeIndex, _ := slice.linear_search_proc(sceneData.nodes, proc(i: cgltf.node) -> bool { return string(i.name) == string("cube") })
+	// just a 1x1 white texture to use when there is no diffuse on the object
+	gl.GenTextures(1, &WhiteGLTexture)
+	defer gl.DeleteTextures(1, &WhiteGLTexture)
+	gl.BindTexture(gl.TEXTURE_2D, WhiteGLTexture)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, raw_data([]f32{1.0, 1.0, 1.0, 1.0}))
 
 	projectionMatrix := linalg.matrix4_perspective_f32(
 		linalg.to_radians(f32(45)),
@@ -224,13 +196,29 @@ main :: proc() {
     gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].quadraticAttenuation"), 0.017)
     fmt.printfln("\tpoint light\n\t\tposition: %v\n\t\tcolor: %v", pointLightPosition, pointLightColor)
 
-	gl.UseProgram(glUnlitProgram)
-	gl.UniformMatrix4fv(
-		gl.GetUniformLocation(glUnlitProgram, "projection"),
-		1,
-		false,
-		raw_data(&projectionMatrix),
-	)
+	// For the UI, I'm using a separate shader, and also separate VAO, so I don't have to keep juggling enabling/disabling
+	// the right mappings on the VAO
+	glUIProgram := gl.load_shaders("shaders/ui.vert", "shaders/ui.frag") or_else panic("Failed to load and compile UI shaders")
+	defer gl.DeleteProgram(glUIProgram)
+	uiVAO: u32
+	gl.GenVertexArrays(1, &uiVAO)
+	defer gl.DeleteVertexArrays(1, &uiVAO)
+	gl.BindVertexArray(uiVAO)
+
+	uiAtlasTexture: u32
+	gl.GenTextures(1, &uiAtlasTexture)
+	defer gl.DeleteTextures(1, &uiAtlasTexture)
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, uiAtlasTexture)
+	// temporarily allow us to specify a texture that is 1 byte per element
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RED, microui.DEFAULT_ATLAS_WIDTH, microui.DEFAULT_ATLAS_HEIGHT, 0, gl.RED, gl.UNSIGNED_BYTE, &microui.default_atlas_alpha)
+	// back to the default it would be at
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
 
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -322,84 +310,12 @@ main :: proc() {
 			WORLD_UP
 		)
 
-		// gltf scene rendering
-		gl.UseProgram(glUnlitProgram)
-		gl.BindVertexArray(sceneVAO)
-		gl.EnableVertexAttribArray(0)
-
-		gl.UniformMatrix4fv(
-			gl.GetUniformLocation(glUnlitProgram, "view"),
-			1,
-			false,
-			raw_data(&viewMatrix),
-		)
-
 		modelMatrix: matrix[4, 4]f32
 
-		for node in sceneData.scene.nodes {
-			if node.mesh == nil || node.name != nil {
-				// for now leaving named and non-root nodes to be rendered separately
-				continue
-			}
-
-			if node.has_matrix {
-				// the order of elements in gltf is the same as the order that Odin stores matrices
-				modelMatrix = transmute(matrix[4, 4]f32)node.matrix_
-			} else {
-				modelMatrix = linalg.matrix4_from_trs(
-					node.has_translation ? node.translation : 0,
-					node.has_rotation ? transmute(quaternion128)node.rotation : linalg.QUATERNIONF32_IDENTITY,
-					node.has_scale ? node.scale : 1,
-				)
-			}
-
-			gl.UniformMatrix4fv(
-				gl.GetUniformLocation(glUnlitProgram, "model"),
-				1,
-				false,
-				raw_data(&modelMatrix),
-			)
-
-			// reset color in case the model doesn't have one
-			gl.DisableVertexAttribArray(1)
-			gl.VertexAttrib3f(1, 0.5, 0.5, 0.5)
-
-			for attribute in node.mesh.primitives[0].attributes {
-				#partial switch attribute.type {
-				case .position: {
-					positionsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-					gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
-					gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, 0, uintptr(attribute.data.buffer_view.offset))
-				}
-				// only one color is supported
-				case .color: {
-					gl.EnableVertexAttribArray(1)
-
-					colorGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-					gl.BindBuffer(gl.ARRAY_BUFFER, colorGLBuffer)
-					gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, 0, uintptr(attribute.data.buffer_view.offset))
-				}
-				}
-			}
-
-			elementsAccessor := node.mesh.primitives[0].indices
-			elementsGLBuffer := glBuffers[node.mesh.primitives[0].indices.buffer_view.buffer]
-			gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementsGLBuffer)
-
-			gl.DrawElements(gl.TRIANGLES, i32(elementsAccessor.count), gl.UNSIGNED_SHORT, nil)
-		}
-
-		// back to the VAO we use for the rest of the program
-		gl.BindVertexArray(vertexArrayObject)
+		gl.BindVertexArray(sceneVAO)
 
 		// enable the scene program and enable the vertex shaders on it
 		gl.UseProgram(glProgram)
-		gl.EnableVertexAttribArray(0)
-		gl.EnableVertexAttribArray(1)
-		gl.EnableVertexAttribArray(2)
-		gl.EnableVertexAttribArray(3)
 		gl.Enable(gl.DEPTH_TEST)
 
 		gl.UniformMatrix4fv(
@@ -415,103 +331,79 @@ main :: proc() {
 			raw_data(&CameraPos),
 		)
 
-		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&[?]f32{0, 0, 0}))
-		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.specularColor"), 1, raw_data(&[?]f32{0, 0, 0}))
-        // by default we use the first container texture and no specular
-        gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 0)
-        gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 0)
-        gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 0)
+		for node in sceneData.scene.nodes {
+			if node.mesh == nil {
+				// for now ignoring nested nodes, root ones only
+				continue
+			}
 
-		// using time as a source for the angle allows it to simulate a frame rate independent rotation
-		// in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
-		// doing the operations in this order results in a neat rotate around a point effect
+			if node.has_matrix {
+			// the order of elements in gltf is the same as the order that Odin stores matrices
+				modelMatrix = transmute(matrix[4, 4]f32)node.matrix_
+			} else {
+				modelMatrix = linalg.matrix4_from_trs(
+					node.has_translation ? node.translation : 0,
+					node.has_rotation ? transmute(quaternion128)node.rotation : linalg.QUATERNIONF32_IDENTITY,
+					node.has_scale ? node.scale : 1,
+				)
+			}
 
-		// now we draw the square
-		modelMatrix =
-			// rotates around the z at a rate of 50 degrees per second
-			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
-			// move it up so its above the cube
-			linalg.matrix4_translate_f32({0, 1.5, 0}) *
-			// put the square flat on its side
-			linalg.matrix4_rotate_f32(linalg.to_radians(f32(90)), {1, 0, 0})
-		gl.UniformMatrix4fv(
-			gl.GetUniformLocation(glProgram, "model"),
-			1,
-			false,
-			raw_data(&modelMatrix),
-		)
-		RenderMesh(&glBuffers, sceneData.nodes[squareNodeIndex].mesh)
+			// objects that I want to handle specially, in the end this should all be in the scene description and data driven
+			// using time as a source for the angle allows it to simulate a frame rate independent rotation
+			// in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
+			// doing the operations in this order results in a neat rotate around a point effect
+			switch node.name {
+			case "square":
+				modelMatrix =
+					// rotates around the z at a rate of 50 degrees per second
+					linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
+					// move it up so its above the cube
+					linalg.matrix4_translate_f32({0, 1.5, 0}) *
+					// put the square flat on its side
+					linalg.matrix4_rotate_f32(linalg.to_radians(f32(90)), {1, 0, 0}) *
+					1
+			case "cube":
+				modelMatrix =
+					linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
+					linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0}) *
+					1
+			case "emissive cube":
+				// for this cube we override the position and color to match the point light
+				modelMatrix =
+					linalg.matrix4_translate_f32(pointLightPosition) *
+					linalg.matrix4_scale_f32({0.1, 0.1, 0.1}) *
+					1
+				node.mesh.primitives[0].material.emissive_factor = pointLightColor
+			}
 
-		// now we draw the central spinning cube
-		modelMatrix =
-			linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
-			linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0}) *
-			1
-		gl.UniformMatrix4fv(
-			gl.GetUniformLocation(glProgram, "model"),
-			1,
-			false,
-			raw_data(&modelMatrix),
-		)
-        gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 16)
-		RenderMesh(&glBuffers, sceneData.nodes[cubeNodeIndex].mesh)
-
-		// now we draw some random cubes around the scene
-		for i in 0..<10 {
-			modelMatrix =
-				linalg.matrix4_translate_f32({f32(3 * (i % 5)) - 5, f32(3 * (i / 5)) + 2.5, 0}) *
-				linalg.matrix4_rotate_f32(linalg.to_radians(f32(i * 20)), {1, 0.3, 0.5}) *
-				1
 			gl.UniformMatrix4fv(
 				gl.GetUniformLocation(glProgram, "model"),
 				1,
 				false,
 				raw_data(&modelMatrix),
 			)
-            gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 32)
-            gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 1)
-            gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 1)
-            gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.specularTex"), 2)
-			RenderMesh(&glBuffers, sceneData.nodes[cubeNodeIndex].mesh)
+
+			RenderMesh(glProgram, &glTextures, &glBuffers, node.mesh)
 		}
-
-		// now we draw the point light as a small cube
-		modelMatrix =
-			linalg.matrix4_translate_f32(pointLightPosition) *
-			linalg.matrix4_scale_f32({0.1, 0.1, 0.1}) *
-			1
-		gl.UniformMatrix4fv(
-			gl.GetUniformLocation(glProgram, "model"),
-			1,
-			false,
-			raw_data(&modelMatrix),
-		)
-		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&pointLightColor))
-		RenderMesh(&glBuffers, sceneData.nodes[cubeNodeIndex].mesh)
-
-		// just to make sure next program only has the relevant attributes open which makes debugging slightly easier
-		gl.DisableVertexAttribArray(0)
-		gl.DisableVertexAttribArray(1)
-		gl.DisableVertexAttribArray(2)
-		gl.DisableVertexAttribArray(3)
 
 		// UI rendering
 		gl.UseProgram(glUIProgram)
+		gl.BindVertexArray(uiVAO)
 		{
 			gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 
 			gl.EnableVertexAttribArray(0)
-			defer gl.DisableVertexAttribArray(0)
 			gl.EnableVertexAttribArray(1)
-			defer gl.DisableVertexAttribArray(1)
 			gl.EnableVertexAttribArray(2)
-			defer gl.DisableVertexAttribArray(2)
 
 			gl.Disable(gl.DEPTH_TEST)
 
 			windowWidth, windowHeight := glfw.GetFramebufferSize(window)
 			uiProjectionMatrix := linalg.matrix_ortho3d_f32(0, f32(windowWidth), f32(windowHeight), 0, -1, 1)
-			gl.Uniform1i(gl.GetUniformLocation(glUIProgram, "atlas"), 16)
+
+			gl.ActiveTexture(gl.TEXTURE0)
+			gl.BindTexture(gl.TEXTURE_2D, uiAtlasTexture)
+
 			gl.UniformMatrix4fv(
 				gl.GetUniformLocation(glUIProgram, "projection"),
 				1,
@@ -610,7 +502,7 @@ mouse_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: c.double) {
 	)
 }
 
-LoadTextureIntoUnit :: proc(gltfPath: string, texture: ^cgltf.texture, unit: u32) -> u32 {
+LoadTexture :: proc(gltfPath: string, texture: ^cgltf.texture) -> u32 {
     textureWidth, textureHeight, textureChannelCount: c.int
 
 	texturePath := filepath.join({ filepath.dir(gltfPath), string(texture.image_.uri) }) or_else
@@ -634,7 +526,6 @@ LoadTextureIntoUnit :: proc(gltfPath: string, texture: ^cgltf.texture, unit: u32
     glTexture: u32
     gl.GenTextures(1, &glTexture)
 
-    gl.ActiveTexture(gl.TEXTURE0 + unit)
     gl.BindTexture(gl.TEXTURE_2D, glTexture)
 
     // how opengl should handle going out of bounds on the texture's 0 - 1.0 coordinates
@@ -709,12 +600,60 @@ LoadScene :: proc(path: string) -> ^cgltf.data {
 	return sceneData
 }
 
-RenderMesh :: proc(glBuffers: ^map[^cgltf.buffer]u32, mesh: ^cgltf.mesh) {
+RenderMesh :: proc(glProgram: u32, glTextures: ^map[^cgltf.texture]u32, glBuffers: ^map[^cgltf.buffer]u32, mesh: ^cgltf.mesh) {
+	primitive := mesh.primitives[0]
+
+	// defaults for material
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, WhiteGLTexture)
+	// no emissive
+	gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&[?]f32{0, 0, 0}))
+	// pure white for diffuse
+	gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 0)
+	// no specularity
+	gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 0)
+	gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.specularColor"), 1, raw_data(&[?]f32{0, 0, 0}))
+	gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 0)
+	// when there is one and specular is used, it'll be using unit 1
+	gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.specularTex"), 1)
+
+	if primitive.material != nil {
+
+		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&primitive.material.emissive_factor))
+
+		if primitive.material.has_pbr_specular_glossiness {
+			if primitive.material.pbr_specular_glossiness.diffuse_texture.texture != nil {
+				gl.ActiveTexture(gl.TEXTURE0)
+				gl.BindTexture(gl.TEXTURE_2D, glTextures[primitive.material.pbr_specular_glossiness.diffuse_texture.texture])
+			}
+
+			// because I'm hacking my way into using this field even though I'm not implementing physically based rendering that gltf defines
+			gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), primitive.material.pbr_specular_glossiness.glossiness_factor * 32)
+			gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.specularColor"), 1, raw_data(&primitive.material.pbr_specular_glossiness.specular_factor))
+
+			if primitive.material.pbr_specular_glossiness.specular_glossiness_texture.texture != nil {
+				gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 1)
+
+				gl.ActiveTexture(gl.TEXTURE1)
+				gl.BindTexture(gl.TEXTURE_2D, glTextures[primitive.material.pbr_specular_glossiness.specular_glossiness_texture.texture])
+			}
+
+		}
+	}
+
 	// the number of "things" to draw, this will either be the number of elements in the indices structure,
 	// or the number of vertices to draw if we're not using indices.
 	drawCount: i32 = 0
 
-	primitive := mesh.primitives[0]
+	// defaults for vertex inputs
+	gl.DisableVertexAttribArray(0)
+	gl.VertexAttrib3f(0, 0, 0, 0)
+	gl.DisableVertexAttribArray(1)
+	gl.VertexAttrib3f(1, 1, 1, 1)
+	gl.DisableVertexAttribArray(2)
+	gl.VertexAttrib2f(2, 0, 0)
+	gl.DisableVertexAttribArray(3)
+	gl.VertexAttrib3f(3, 0, 0, 0)
 
 	for attribute in primitive.attributes {
 		#partial switch attribute.type {
@@ -723,33 +662,44 @@ RenderMesh :: proc(glBuffers: ^map[^cgltf.buffer]u32, mesh: ^cgltf.mesh) {
 
 			drawCount = primitive.indices == nil ? i32(attribute.data.count) : i32(primitive.indices.count)
 
+			gl.EnableVertexAttribArray(0)
+
 			gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
-			gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+			gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset + attribute.data.buffer_view.offset))
 		}
 		case .color: {
 			colorGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
 
+			gl.EnableVertexAttribArray(1)
+
 			gl.BindBuffer(gl.ARRAY_BUFFER, colorGLBuffer)
-			gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+			gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset + attribute.data.buffer_view.offset))
 		}
 		case .texcoord: {
 			texCoordGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
 
+			gl.EnableVertexAttribArray(2)
+
 			gl.BindBuffer(gl.ARRAY_BUFFER, texCoordGLBuffer)
-			gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+			gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset + attribute.data.buffer_view.offset))
 		}
 		case .normal: {
 			normalsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
 
+			gl.EnableVertexAttribArray(3)
+
 			gl.BindBuffer(gl.ARRAY_BUFFER, normalsGLBuffer)
-			gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset))
+			gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset + attribute.data.buffer_view.offset))
 		}
 		}
 	}
 
 	if primitive.indices != nil {
 		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, glBuffers[primitive.indices.buffer_view.buffer])
-		gl.DrawElements(gl.TRIANGLES, drawCount, gl.UNSIGNED_INT, rawptr(uintptr(primitive.indices.offset + primitive.indices.buffer_view.offset)))
+
+		// right now the only component types I'm supporting, will change this to proper mapping later
+		componentType : u32 = primitive.indices.component_type == .r_16u ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT
+		gl.DrawElements(gl.TRIANGLES, drawCount, componentType, rawptr(uintptr(primitive.indices.offset + primitive.indices.buffer_view.offset)))
 	} else {
 		gl.DrawArrays(gl.TRIANGLES, 0, drawCount)
 	}

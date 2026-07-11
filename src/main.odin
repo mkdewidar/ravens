@@ -223,6 +223,9 @@ main :: proc() {
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
+	gl.Enable(gl.CULL_FACE)
+	gl.CullFace(gl.BACK)
+
 	for !glfw.WindowShouldClose(window) {
 
 		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {

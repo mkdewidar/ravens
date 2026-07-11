@@ -224,6 +224,7 @@ main :: proc() {
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
 	gl.Enable(gl.CULL_FACE)
+	gl.FrontFace(gl.CCW)
 	gl.CullFace(gl.BACK)
 
 	for !glfw.WindowShouldClose(window) {
@@ -402,6 +403,7 @@ main :: proc() {
 			gl.Disable(gl.DEPTH_TEST)
 
 			windowWidth, windowHeight := glfw.GetFramebufferSize(window)
+			// for the UI, we use a coordinate system where origin is top left, x grows to the right and y grows up
 			uiProjectionMatrix := linalg.matrix_ortho3d_f32(0, f32(windowWidth), f32(windowHeight), 0, -1, 1)
 
 			gl.ActiveTexture(gl.TEXTURE0)
@@ -564,14 +566,15 @@ UIDrawTexturedQuad :: proc(rect, textureRect: microui.Rect, color: microui.Color
 	texX, texY, texWidth, texHeight := f32(textureRect.x) / microui.DEFAULT_ATLAS_WIDTH, f32(textureRect.y) / microui.DEFAULT_ATLAS_HEIGHT, f32(textureRect.w) / microui.DEFAULT_ATLAS_WIDTH, f32(textureRect.h) / microui.DEFAULT_ATLAS_HEIGHT
 	r, g, b, a := f32(color.r) / 255, f32(color.g) / 255, f32(color.b) / 255, f32(color.a) / 255
 
+	// in counter clockwise order
 	quadData := [?]f32 {
 		// verts                 // color       // tex coords
-		x, y,                    r, g, b, a,    texX, texY,
-		x + width, y,            r, g, b, a,    texX + texWidth, texY,
 		x, y + height,           r, g, b, a,    texX, texY + texHeight,
-
 		x + width, y,            r, g, b, a,    texX + texWidth, texY,
+		x, y,                    r, g, b, a,    texX, texY,
+
 		x + width, y + height,   r, g, b, a,    texX + texWidth, texY + texHeight,
+		x + width, y,            r, g, b, a,    texX + texWidth, texY,
 		x, y + height,           r, g, b, a,    texX, texY + texHeight,
 	}
 	gl.BufferData(gl.ARRAY_BUFFER, size_of(quadData), &quadData, gl.STATIC_DRAW)

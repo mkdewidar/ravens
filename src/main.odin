@@ -30,6 +30,9 @@ WINDOW_WIDTH :: 640
 WINDOW_HEIGHT :: 480
 WINDOW_ASPECT_RATIO :: WINDOW_WIDTH / WINDOW_HEIGHT
 
+RENDER_WIDTH :: WINDOW_WIDTH
+RENDER_HEIGHT :: WINDOW_HEIGHT
+
 CAMERA_DEFAULT_POS :: [?]f32{0, 0, 5}
 CAMERA_DEFAULT_FRONT :: [?]f32{0, 0, -1}
 
@@ -96,6 +99,25 @@ main :: proc() {
 
 	glfw.SetFramebufferSizeCallback(window, framebuffer_size_callback)
 
+	glFirstPassFramebuffer, glFirstPassColorBuffer, glFirstPassDepthBuffer: u32
+	gl.GenFramebuffers(1, &glFirstPassFramebuffer)
+	defer gl.DeleteFramebuffers(1, &glFirstPassFramebuffer)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, glFirstPassFramebuffer)
+
+	gl.GenTextures(1, &glFirstPassColorBuffer)
+	defer gl.DeleteTextures(1, &glFirstPassColorBuffer)
+	gl.BindTexture(gl.TEXTURE_2D, glFirstPassColorBuffer)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, RENDER_WIDTH, RENDER_HEIGHT, 0, gl.RGB, gl.UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, glFirstPassColorBuffer, 0)
+
+	gl.GenRenderbuffers(1, &glFirstPassDepthBuffer)
+	defer gl.DeleteRenderbuffers(1, &glFirstPassDepthBuffer)
+	gl.BindRenderbuffer(gl.RENDERBUFFER, glFirstPassDepthBuffer)
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, RENDER_WIDTH, RENDER_HEIGHT)
+	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, glFirstPassDepthBuffer)
+
 	// a map of gltf buffer pointers to gl buffer IDs
 	glBuffers := make(map[^cgltf.buffer]u32)
 	defer delete(glBuffers)
@@ -108,6 +130,10 @@ main :: proc() {
 	phongShader := PhongShader{}
 	phong_create(&phongShader)
 	defer phong_destroy(&phongShader)
+
+	postProcessShader := PostProcessShader{}
+	post_process_create(&postProcessShader)
+	defer post_process_destroy(&postProcessShader)
 
 	uiShader := UIShader{}
 	ui_create(&uiShader)
@@ -125,19 +151,18 @@ main :: proc() {
 
 		process_input(window, mui)
 
-		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
-		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-
-		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
-
 		viewMatrix := linalg.matrix4_look_at(
 			CameraPos,
 			CameraPos + CameraFront,
 			WORLD_UP
 		)
-
 		modelMatrix: matrix[4, 4]f32
 
+		gl.BindFramebuffer(gl.FRAMEBUFFER, glFirstPassFramebuffer)
+		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
 		phong_pre_draw(&phongShader, &viewMatrix, &CameraPos)
 		for node in sceneData.scene.nodes {
 			if node.mesh == nil {
@@ -190,6 +215,15 @@ main :: proc() {
 		}
 		phong_post_draw(&phongShader)
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+
+		// post processing
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+		post_process_pre_draw(&postProcessShader)
+		post_process_draw(&postProcessShader, glFirstPassColorBuffer, {-1, -1, 2, 2})
+		post_process_post_draw(&postProcessShader)
 
 		// UI rendering
 		{

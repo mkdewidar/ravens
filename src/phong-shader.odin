@@ -25,11 +25,11 @@ PhongShader :: struct {
 
 PhongShaderInput :: struct {
 	elementCount: u32,
-	indices: ^BufferView,
-	positions: ^BufferView,
-	colors: ^BufferView,
-	texcoords: ^BufferView,
-	normals: ^BufferView,
+	indices: Maybe(BufferView),
+	positions: Maybe(BufferView),
+	colors: Maybe(BufferView),
+	texcoords: Maybe(BufferView),
+	normals: Maybe(BufferView),
 
 	hasMaterial: bool,
 	material: struct {
@@ -137,44 +137,44 @@ phong_draw :: proc(this: ^PhongShader, model: ^matrix[4, 4]f32, input: ^PhongSha
 		raw_data(model),
 	)
 
-	if input.positions == nil {
-		gl.DisableVertexAttribArray(0)
-		gl.VertexAttrib3f(0, 0, 0, 0)
-	} else {
+	if positions, isSet := input.positions.(BufferView); isSet {
 		gl.EnableVertexAttribArray(0)
 
-		gl.BindBuffer(gl.ARRAY_BUFFER, input.positions.glBuffer)
-		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, input.positions.stride, uintptr(input.positions.offset))
+		gl.BindBuffer(gl.ARRAY_BUFFER, positions.glBuffer)
+		gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, positions.stride, uintptr(positions.offset))
+	} else {
+		gl.DisableVertexAttribArray(0)
+		gl.VertexAttrib3f(0, 0, 0, 0)
 	}
 
-	if input.colors == nil {
-		gl.DisableVertexAttribArray(1)
-		gl.VertexAttrib3f(1, 1, 1, 1)
-	} else {
+	if colors, isSet := input.colors.(BufferView); isSet {
 		gl.EnableVertexAttribArray(1)
 
-		gl.BindBuffer(gl.ARRAY_BUFFER, input.colors.glBuffer)
-		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, input.colors.stride, uintptr(input.colors.offset))
+		gl.BindBuffer(gl.ARRAY_BUFFER, colors.glBuffer)
+		gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, colors.stride, uintptr(colors.offset))
+	} else {
+		gl.DisableVertexAttribArray(1)
+		gl.VertexAttrib3f(1, 1, 1, 1)
 	}
 
-	if input.texcoords == nil {
-		gl.DisableVertexAttribArray(2)
-		gl.VertexAttrib2f(2, 0, 0)
-	} else {
+	if texcoords, isSet := input.texcoords.(BufferView); isSet {
 		gl.EnableVertexAttribArray(2)
 
-		gl.BindBuffer(gl.ARRAY_BUFFER, input.texcoords.glBuffer)
-		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, input.texcoords.stride, uintptr(input.texcoords.offset))
+		gl.BindBuffer(gl.ARRAY_BUFFER, texcoords.glBuffer)
+		gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, texcoords.stride, uintptr(texcoords.offset))
+	} else {
+		gl.DisableVertexAttribArray(2)
+		gl.VertexAttrib2f(2, 0, 0)
 	}
 
-	if input.normals == nil {
-		gl.DisableVertexAttribArray(3)
-		gl.VertexAttrib3f(3, 0, 0, 0)
-	} else {
+	if normals, isSet := input.normals.(BufferView); isSet {
 		gl.EnableVertexAttribArray(3)
 
-		gl.BindBuffer(gl.ARRAY_BUFFER, input.normals.glBuffer)
-		gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, input.normals.stride, uintptr(input.normals.offset))
+		gl.BindBuffer(gl.ARRAY_BUFFER, normals.glBuffer)
+		gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, normals.stride, uintptr(normals.offset))
+	} else {
+		gl.DisableVertexAttribArray(3)
+		gl.VertexAttrib3f(3, 0, 0, 0)
 	}
 
 	// defaults for material
@@ -210,10 +210,10 @@ phong_draw :: proc(this: ^PhongShader, model: ^matrix[4, 4]f32, input: ^PhongSha
 		}
 	}
 
-	if input.indices != nil {
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, input.indices.glBuffer)
+	if indices, isSet := input.indices.(BufferView); isSet {
+		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices.glBuffer)
 
-		gl.DrawElements(gl.TRIANGLES, i32(input.elementCount), input.indices.glComponentType, rawptr(uintptr(input.indices.offset)))
+		gl.DrawElements(gl.TRIANGLES, i32(input.elementCount), indices.glComponentType, rawptr(uintptr(indices.offset)))
 	} else if input.positions != nil {
 		gl.DrawArrays(gl.TRIANGLES, 0, i32(input.elementCount))
 	}

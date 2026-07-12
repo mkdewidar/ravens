@@ -144,80 +144,9 @@ main :: proc() {
 	gl.CullFace(gl.BACK)
 
 	for !glfw.WindowShouldClose(window) {
+		free_all(context.temp_allocator)
 
-		if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
-			glfw.SetWindowShouldClose(window, true)
-		}
-		if glfw.GetKey(window, glfw.KEY_R) == glfw.PRESS {
-			CameraPos = CAMERA_DEFAULT_POS
-			CameraFront = CAMERA_DEFAULT_FRONT
-
-			LastMouseX = 0
-			LastMouseY = 0
-
-			CameraYaw, CameraPitch = -90, 0
-		}
-		if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
-			CameraPos += (CAMERA_SPEED * CameraFront)
-		}
-		if glfw.GetKey(window, glfw.KEY_A) == glfw.PRESS {
-			// cross product gives us the third axis (horizontal), and we normalise to ensure
-			// the speed is always a multiple of the same length vector
-			CameraPos -=
-				linalg.normalize(linalg.vector_cross3(CameraFront, WORLD_UP)) * CAMERA_SPEED
-		}
-		if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
-			CameraPos -= (CAMERA_SPEED * CameraFront)
-		}
-		if glfw.GetKey(window, glfw.KEY_D) == glfw.PRESS {
-			// cross product gives us the third axis (horizontal), and we normalise to ensure
-			// the speed is always a multiple of the same length vector
-			CameraPos +=
-				linalg.normalize(linalg.vector_cross3(CameraFront, WORLD_UP)) * CAMERA_SPEED
-		}
-		if glfw.GetKey(window, glfw.KEY_E) == glfw.PRESS {
-			CameraPos += linalg.normalize(WORLD_UP) * CAMERA_SPEED
-		}
-		if glfw.GetKey(window, glfw.KEY_Q) == glfw.PRESS {
-			CameraPos -= linalg.normalize(WORLD_UP) * CAMERA_SPEED
-		}
-		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS {
-			// only when the button is clicked the first time
-			if (glfw.GetInputMode(window, glfw.CURSOR) != glfw.CURSOR_DISABLED) {
-
-				glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
-
-				LastMouseX, LastMouseY = glfw.GetCursorPos(window)
-			}
-		}
-		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.RELEASE {
-			// just to prevent churn of constantly setting the input mode
-			if (glfw.GetInputMode(window, glfw.CURSOR) != glfw.CURSOR_NORMAL) {
-				glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
-			}
-		}
-
-		cursorX, cursorY := glfw.GetCursorPos(window)
-		microui.input_mouse_move(mui, i32(cursorX), i32(cursorY))
-		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS {
-			if microui.Mouse.LEFT not_in mui.mouse_down_bits {
-				microui.input_mouse_down(mui, i32(cursorX), i32(cursorY), microui.Mouse.LEFT)
-			}
-		}
-		if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_LEFT) == glfw.RELEASE {
-			// the mouse button defaults to being released, so only process a release if it following a press
-			if microui.Mouse.LEFT in mui.mouse_down_bits {
-				microui.input_mouse_up(mui, i32(cursorX), i32(cursorY), microui.Mouse.LEFT)
-			}
-		}
-
-		microui.begin(mui)
-		if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 200, 100 }) {
-			microui.checkbox(mui, "Wireframe Mode", &Settings.wireframeModeEnabled)
-
-			microui.end_window(mui)
-		}
-		microui.end(mui)
+		process_input(window, mui)
 
 		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -279,78 +208,7 @@ main :: proc() {
 			}
 
 			input := PhongShaderInput{}
-			primitive := node.mesh.primitives[0]
-
-			for attribute in primitive.attributes {
-				#partial switch attribute.type {
-				case .position: {
-					if primitive.indices != nil {
-						input.elementCount = u32(primitive.indices.count)
-
-						input.indices = &BufferView {
-							glBuffer = glBuffers[primitive.indices.buffer_view.buffer],
-							// right now the only component types I'm supporting, will change this to proper mapping later
-							glComponentType = primitive.indices.component_type == .r_16u ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT,
-							stride = i32(primitive.indices.stride),
-							offset = primitive.indices.offset + primitive.indices.buffer_view.offset,
-						}
-					} else {
-						input.elementCount = u32(attribute.data.count)
-					}
-
-					input.positions = &BufferView {
-						glBuffer = glBuffers[attribute.data.buffer_view.buffer],
-						glComponentType = gl.FLOAT,
-						stride = i32(attribute.data.stride),
-						offset = attribute.data.offset + attribute.data.buffer_view.offset,
-					}
-				}
-				case .color: {
-					input.colors = &BufferView {
-						glBuffer = glBuffers[attribute.data.buffer_view.buffer],
-						glComponentType = gl.FLOAT,
-						stride = i32(attribute.data.stride),
-						offset = attribute.data.offset + attribute.data.buffer_view.offset,
-					}
-				}
-				case .texcoord: {
-					input.texcoords = &BufferView {
-						glBuffer = glBuffers[attribute.data.buffer_view.buffer],
-						glComponentType = gl.FLOAT,
-						stride = i32(attribute.data.stride),
-						offset = attribute.data.offset + attribute.data.buffer_view.offset,
-					}
-				}
-				case .normal: {
-					input.normals = &BufferView {
-						glBuffer = glBuffers[attribute.data.buffer_view.buffer],
-						glComponentType = gl.FLOAT,
-						stride = i32(attribute.data.stride),
-						offset = attribute.data.offset + attribute.data.buffer_view.offset,
-					}
-				}
-				}
-			}
-
-			if material := primitive.material; material != nil {
-				input.hasMaterial = true
-				input.material.emissiveColor = material.emissive_factor
-
-				if material.has_pbr_specular_glossiness {
-					if diffuseTexture := material.pbr_specular_glossiness.diffuse_texture.texture; diffuseTexture != nil {
-						input.material.glDiffuseTexture = glTextures[diffuseTexture]
-					}
-
-					// because I'm hacking my way into using this field even though I'm not implementing physically based rendering that gltf defines
-					input.material.specularity = material.pbr_specular_glossiness.glossiness_factor * 32
-					input.material.specularColor = material.pbr_specular_glossiness.specular_factor
-
-					if specularTexture := material.pbr_specular_glossiness.specular_glossiness_texture.texture; specularTexture != nil {
-						input.material.glSpecularTexture = glTextures[specularTexture]
-					}
-				}
-			}
-
+			fill_draw_input(&glBuffers, &glTextures, &input, &node.mesh.primitives[0])
 			phong_draw(&phongShader, &modelMatrix, &input)
 		}
 		phong_post_draw(&phongShader)
@@ -458,6 +316,82 @@ mouse_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: c.double) {
 	)
 }
 
+process_input :: proc(window: glfw.WindowHandle, mui: ^microui.Context) {
+	if glfw.GetKey(window, glfw.KEY_ESCAPE) == glfw.PRESS {
+		glfw.SetWindowShouldClose(window, true)
+	}
+	if glfw.GetKey(window, glfw.KEY_R) == glfw.PRESS {
+		CameraPos = CAMERA_DEFAULT_POS
+		CameraFront = CAMERA_DEFAULT_FRONT
+
+		LastMouseX = 0
+		LastMouseY = 0
+
+		CameraYaw, CameraPitch = -90, 0
+	}
+	if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
+		CameraPos += (CAMERA_SPEED * CameraFront)
+	}
+	if glfw.GetKey(window, glfw.KEY_A) == glfw.PRESS {
+		// cross product gives us the third axis (horizontal), and we normalise to ensure
+		// the speed is always a multiple of the same length vector
+		CameraPos -=
+			linalg.normalize(linalg.vector_cross3(CameraFront, WORLD_UP)) * CAMERA_SPEED
+	}
+	if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
+		CameraPos -= (CAMERA_SPEED * CameraFront)
+	}
+	if glfw.GetKey(window, glfw.KEY_D) == glfw.PRESS {
+		// cross product gives us the third axis (horizontal), and we normalise to ensure
+		// the speed is always a multiple of the same length vector
+		CameraPos +=
+			linalg.normalize(linalg.vector_cross3(CameraFront, WORLD_UP)) * CAMERA_SPEED
+	}
+	if glfw.GetKey(window, glfw.KEY_E) == glfw.PRESS {
+		CameraPos += linalg.normalize(WORLD_UP) * CAMERA_SPEED
+	}
+	if glfw.GetKey(window, glfw.KEY_Q) == glfw.PRESS {
+		CameraPos -= linalg.normalize(WORLD_UP) * CAMERA_SPEED
+	}
+	if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS {
+		// only when the button is clicked the first time
+		if (glfw.GetInputMode(window, glfw.CURSOR) != glfw.CURSOR_DISABLED) {
+
+			glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+
+			LastMouseX, LastMouseY = glfw.GetCursorPos(window)
+		}
+	}
+	if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_RIGHT) == glfw.RELEASE {
+		// just to prevent churn of constantly setting the input mode
+		if (glfw.GetInputMode(window, glfw.CURSOR) != glfw.CURSOR_NORMAL) {
+			glfw.SetInputMode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+		}
+	}
+
+	cursorX, cursorY := glfw.GetCursorPos(window)
+	microui.input_mouse_move(mui, i32(cursorX), i32(cursorY))
+	if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS {
+		if microui.Mouse.LEFT not_in mui.mouse_down_bits {
+			microui.input_mouse_down(mui, i32(cursorX), i32(cursorY), microui.Mouse.LEFT)
+		}
+	}
+	if glfw.GetMouseButton(window, glfw.MOUSE_BUTTON_LEFT) == glfw.RELEASE {
+		// the mouse button defaults to being released, so only process a release if it following a press
+		if microui.Mouse.LEFT in mui.mouse_down_bits {
+			microui.input_mouse_up(mui, i32(cursorX), i32(cursorY), microui.Mouse.LEFT)
+		}
+	}
+
+	microui.begin(mui)
+	if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 200, 100 }) {
+		microui.checkbox(mui, "Wireframe Mode", &Settings.wireframeModeEnabled)
+
+		microui.end_window(mui)
+	}
+	microui.end(mui)
+}
+
 load_texture :: proc(gltfPath: string, texture: ^cgltf.texture) -> u32 {
     textureWidth, textureHeight, textureChannelCount: c.int
 
@@ -524,4 +458,76 @@ load_scene :: proc(path: string) -> ^cgltf.data {
 	}
 
 	return sceneData
+}
+
+fill_draw_input :: proc(glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgltf.texture]u32, input: ^PhongShaderInput, primitive: ^cgltf.primitive) {
+	for attribute in primitive.attributes {
+		#partial switch attribute.type {
+		case .position: {
+			if primitive.indices != nil {
+				input.elementCount = u32(primitive.indices.count)
+
+				input.indices = BufferView {
+					glBuffer = glBuffers[primitive.indices.buffer_view.buffer],
+					// right now the only component types I'm supporting, will change this to proper mapping later
+					glComponentType = primitive.indices.component_type == .r_16u ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT,
+					stride = i32(primitive.indices.stride),
+					offset = primitive.indices.offset + primitive.indices.buffer_view.offset,
+				}
+			} else {
+				input.elementCount = u32(attribute.data.count)
+			}
+
+			input.positions = BufferView {
+				glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+				glComponentType = gl.FLOAT,
+				stride = i32(attribute.data.stride),
+				offset = attribute.data.offset + attribute.data.buffer_view.offset,
+			}
+		}
+		case .color: {
+			input.colors = BufferView {
+				glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+				glComponentType = gl.FLOAT,
+				stride = i32(attribute.data.stride),
+				offset = attribute.data.offset + attribute.data.buffer_view.offset,
+			}
+		}
+		case .texcoord: {
+			input.texcoords = BufferView {
+				glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+				glComponentType = gl.FLOAT,
+				stride = i32(attribute.data.stride),
+				offset = attribute.data.offset + attribute.data.buffer_view.offset,
+			}
+		}
+		case .normal: {
+			input.normals = BufferView {
+				glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+				glComponentType = gl.FLOAT,
+				stride = i32(attribute.data.stride),
+				offset = attribute.data.offset + attribute.data.buffer_view.offset,
+			}
+		}
+		}
+	}
+
+	if material := primitive.material; material != nil {
+		input.hasMaterial = true
+		input.material.emissiveColor = material.emissive_factor
+
+		if material.has_pbr_specular_glossiness {
+			if diffuseTexture := material.pbr_specular_glossiness.diffuse_texture.texture; diffuseTexture != nil {
+				input.material.glDiffuseTexture = glTextures[diffuseTexture]
+			}
+
+			// because I'm hacking my way into using this field even though I'm not implementing physically based rendering that gltf defines
+			input.material.specularity = material.pbr_specular_glossiness.glossiness_factor * 32
+			input.material.specularColor = material.pbr_specular_glossiness.specular_factor
+
+			if specularTexture := material.pbr_specular_glossiness.specular_glossiness_texture.texture; specularTexture != nil {
+				input.material.glSpecularTexture = glTextures[specularTexture]
+			}
+		}
+	}
 }

@@ -99,13 +99,9 @@ main :: proc() {
 
 	glfw.SetFramebufferSizeCallback(window, framebuffer_size_callback)
 
-	// yet another fantastic helper function for loading, compiling, and attaching shaders to this OpenGL program
-	glProgram :=
-		gl.load_shaders("shaders/shader.vert", "shaders/shader.frag") or_else panic(
-			"Failed to load and compile shaders",
-		)
-	defer gl.DeleteProgram(glProgram)
-	gl.UseProgram(glProgram)
+	phongShader := PhongShader{}
+	phong_create(&phongShader)
+	defer phong_destroy(&phongShader)
 
 	// a map of gltf buffer pointers to gl buffer IDs
 	glBuffers := make(map[^cgltf.buffer]u32)
@@ -138,63 +134,11 @@ main :: proc() {
 			gl.DeleteTextures(1, &glTexture)
 		}
 	}
-	sceneVAO: u32
-	gl.GenVertexArrays(1, &sceneVAO)
-	defer gl.DeleteVertexArrays(1, &sceneVAO)
-
 	// just a 1x1 white texture to use when there is no diffuse on the object
 	gl.GenTextures(1, &WhiteGLTexture)
 	defer gl.DeleteTextures(1, &WhiteGLTexture)
 	gl.BindTexture(gl.TEXTURE_2D, WhiteGLTexture)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, raw_data([]f32{1.0, 1.0, 1.0, 1.0}))
-
-	projectionMatrix := linalg.matrix4_perspective_f32(
-		linalg.to_radians(f32(45)),
-		WINDOW_ASPECT_RATIO,
-		0.1,
-		100,
-	)
-	gl.UniformMatrix4fv(
-		gl.GetUniformLocation(glProgram, "projection"),
-		1,
-		false,
-		raw_data(&projectionMatrix),
-	)
-
-	fmt.printfln("Initial camera parameters:\n\tpos: %v\n\tfront: %v\n\t", CameraPos, CameraFront)
-
-	fmt.printfln("Light parameters:")
-
-	directLightDirection := linalg.normalize([?]f32{ 0, -1, 0 })
-	gl.Uniform3fv(
-		gl.GetUniformLocation(glProgram, "directLight.direction"),
-		1,
-		raw_data(&directLightDirection),
-	)
-	directLightColor := [?]f32{ 1, 1, 1 }
-	gl.Uniform3fv(
-		gl.GetUniformLocation(glProgram, "directLight.color"),
-		1,
-		raw_data(&directLightColor),
-	)
-	fmt.printfln("\tdirectLight\n\t\tdirection: %v\n\t\tcolor: %v", directLightDirection, directLightColor)
-
-	pointLightPosition := [?]f32{ 0, 5, 0 }
-	gl.Uniform3fv(
-		gl.GetUniformLocation(glProgram, "pointLights[0].position"),
-		1,
-		raw_data(&pointLightPosition),
-	)
-	pointLightColor := [?]f32{ 0, 0, 1 }
-	gl.Uniform3fv(
-		gl.GetUniformLocation(glProgram, "pointLights[0].color"),
-		1,
-		raw_data(&pointLightColor),
-	)
-    gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].constantAttenuation"), 1.0)
-    gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].linearAttenuation"), 0.07)
-    gl.Uniform1f(gl.GetUniformLocation(glProgram, "pointLights[0].quadraticAttenuation"), 0.017)
-    fmt.printfln("\tpoint light\n\t\tposition: %v\n\t\tcolor: %v", pointLightPosition, pointLightColor)
 
 	// For the UI, I'm using a separate shader, and also separate VAO, so I don't have to keep juggling enabling/disabling
 	// the right mappings on the VAO
@@ -316,25 +260,7 @@ main :: proc() {
 
 		modelMatrix: matrix[4, 4]f32
 
-		gl.BindVertexArray(sceneVAO)
-
-		// enable the scene program and enable the vertex shaders on it
-		gl.UseProgram(glProgram)
-		gl.Enable(gl.DEPTH_TEST)
-
-		gl.UniformMatrix4fv(
-			gl.GetUniformLocation(glProgram, "view"),
-			1,
-			false,
-			raw_data(&viewMatrix),
-		)
-
-		gl.Uniform3fv(
-			gl.GetUniformLocation(glProgram, "viewPos"),
-			1,
-			raw_data(&CameraPos),
-		)
-
+		phong_pre_draw(&phongShader, &viewMatrix, &CameraPos)
 		for node in sceneData.scene.nodes {
 			if node.mesh == nil {
 				// for now ignoring nested nodes, root ones only
@@ -374,21 +300,88 @@ main :: proc() {
 			case "emissive cube":
 				// for this cube we override the position and color to match the point light
 				modelMatrix =
-					linalg.matrix4_translate_f32(pointLightPosition) *
+					linalg.matrix4_translate_f32(phongShader.pointLightPosition) *
 					linalg.matrix4_scale_f32({0.1, 0.1, 0.1}) *
 					1
-				node.mesh.primitives[0].material.emissive_factor = pointLightColor
+				node.mesh.primitives[0].material.emissive_factor = phongShader.pointLightColor
 			}
 
-			gl.UniformMatrix4fv(
-				gl.GetUniformLocation(glProgram, "model"),
-				1,
-				false,
-				raw_data(&modelMatrix),
-			)
+			input := PhongShaderInput{}
+			primitive := node.mesh.primitives[0]
 
-			RenderMesh(glProgram, &glTextures, &glBuffers, node.mesh)
+			for attribute in primitive.attributes {
+				#partial switch attribute.type {
+				case .position: {
+					if primitive.indices != nil {
+						input.elementCount = u32(primitive.indices.count)
+
+						input.indices = &BufferView {
+							glBuffer = glBuffers[primitive.indices.buffer_view.buffer],
+							// right now the only component types I'm supporting, will change this to proper mapping later
+							glComponentType = primitive.indices.component_type == .r_16u ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT,
+							stride = i32(primitive.indices.stride),
+							offset = primitive.indices.offset + primitive.indices.buffer_view.offset,
+						}
+					} else {
+						input.elementCount = u32(attribute.data.count)
+					}
+
+					input.positions = &BufferView {
+						glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+						glComponentType = gl.FLOAT,
+						stride = i32(attribute.data.stride),
+						offset = attribute.data.offset + attribute.data.buffer_view.offset,
+					}
+				}
+				case .color: {
+					input.colors = &BufferView {
+						glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+						glComponentType = gl.FLOAT,
+						stride = i32(attribute.data.stride),
+						offset = attribute.data.offset + attribute.data.buffer_view.offset,
+					}
+				}
+				case .texcoord: {
+					input.texcoords = &BufferView {
+						glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+						glComponentType = gl.FLOAT,
+						stride = i32(attribute.data.stride),
+						offset = attribute.data.offset + attribute.data.buffer_view.offset,
+					}
+				}
+				case .normal: {
+					input.normals = &BufferView {
+						glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+						glComponentType = gl.FLOAT,
+						stride = i32(attribute.data.stride),
+						offset = attribute.data.offset + attribute.data.buffer_view.offset,
+					}
+				}
+				}
+			}
+
+			if material := primitive.material; material != nil {
+				input.hasMaterial = true
+				input.material.emissiveColor = material.emissive_factor
+
+				if material.has_pbr_specular_glossiness {
+					if diffuseTexture := material.pbr_specular_glossiness.diffuse_texture.texture; diffuseTexture != nil {
+						input.material.glDiffuseTexture = glTextures[diffuseTexture]
+					}
+
+					// because I'm hacking my way into using this field even though I'm not implementing physically based rendering that gltf defines
+					input.material.specularity = material.pbr_specular_glossiness.glossiness_factor * 32
+					input.material.specularColor = material.pbr_specular_glossiness.specular_factor
+
+					if specularTexture := material.pbr_specular_glossiness.specular_glossiness_texture.texture; specularTexture != nil {
+						input.material.glSpecularTexture = glTextures[specularTexture]
+					}
+				}
+			}
+
+			phong_draw(&phongShader, &modelMatrix, &input)
 		}
+		phong_post_draw(&phongShader)
 
 		// UI rendering
 		gl.UseProgram(glUIProgram)
@@ -604,109 +597,4 @@ LoadScene :: proc(path: string) -> ^cgltf.data {
 	}
 
 	return sceneData
-}
-
-RenderMesh :: proc(glProgram: u32, glTextures: ^map[^cgltf.texture]u32, glBuffers: ^map[^cgltf.buffer]u32, mesh: ^cgltf.mesh) {
-	primitive := mesh.primitives[0]
-
-	// defaults for material
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, WhiteGLTexture)
-	// no emissive
-	gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&[?]f32{0, 0, 0}))
-	// pure white for diffuse
-	gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.diffuseTex"), 0)
-	// no specularity
-	gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), 0)
-	gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.specularColor"), 1, raw_data(&[?]f32{0, 0, 0}))
-	gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 0)
-	// when there is one and specular is used, it'll be using unit 1
-	gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.specularTex"), 1)
-
-	if primitive.material != nil {
-
-		gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&primitive.material.emissive_factor))
-
-		if primitive.material.has_pbr_specular_glossiness {
-			if primitive.material.pbr_specular_glossiness.diffuse_texture.texture != nil {
-				gl.ActiveTexture(gl.TEXTURE0)
-				gl.BindTexture(gl.TEXTURE_2D, glTextures[primitive.material.pbr_specular_glossiness.diffuse_texture.texture])
-			}
-
-			// because I'm hacking my way into using this field even though I'm not implementing physically based rendering that gltf defines
-			gl.Uniform1f(gl.GetUniformLocation(glProgram, "objectMaterial.specularity"), primitive.material.pbr_specular_glossiness.glossiness_factor * 32)
-			gl.Uniform3fv(gl.GetUniformLocation(glProgram, "objectMaterial.specularColor"), 1, raw_data(&primitive.material.pbr_specular_glossiness.specular_factor))
-
-			if primitive.material.pbr_specular_glossiness.specular_glossiness_texture.texture != nil {
-				gl.Uniform1i(gl.GetUniformLocation(glProgram, "objectMaterial.useSpecularMap"), 1)
-
-				gl.ActiveTexture(gl.TEXTURE1)
-				gl.BindTexture(gl.TEXTURE_2D, glTextures[primitive.material.pbr_specular_glossiness.specular_glossiness_texture.texture])
-			}
-
-		}
-	}
-
-	// the number of "things" to draw, this will either be the number of elements in the indices structure,
-	// or the number of vertices to draw if we're not using indices.
-	drawCount: i32 = 0
-
-	// defaults for vertex inputs
-	gl.DisableVertexAttribArray(0)
-	gl.VertexAttrib3f(0, 0, 0, 0)
-	gl.DisableVertexAttribArray(1)
-	gl.VertexAttrib3f(1, 1, 1, 1)
-	gl.DisableVertexAttribArray(2)
-	gl.VertexAttrib2f(2, 0, 0)
-	gl.DisableVertexAttribArray(3)
-	gl.VertexAttrib3f(3, 0, 0, 0)
-
-	for attribute in primitive.attributes {
-		#partial switch attribute.type {
-		case .position: {
-			positionsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-			drawCount = primitive.indices == nil ? i32(attribute.data.count) : i32(primitive.indices.count)
-
-			gl.EnableVertexAttribArray(0)
-
-			gl.BindBuffer(gl.ARRAY_BUFFER, positionsGLBuffer)
-			gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset + attribute.data.buffer_view.offset))
-		}
-		case .color: {
-			colorGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-			gl.EnableVertexAttribArray(1)
-
-			gl.BindBuffer(gl.ARRAY_BUFFER, colorGLBuffer)
-			gl.VertexAttribPointer(1, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset + attribute.data.buffer_view.offset))
-		}
-		case .texcoord: {
-			texCoordGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-			gl.EnableVertexAttribArray(2)
-
-			gl.BindBuffer(gl.ARRAY_BUFFER, texCoordGLBuffer)
-			gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset + attribute.data.buffer_view.offset))
-		}
-		case .normal: {
-			normalsGLBuffer := glBuffers[attribute.data.buffer_view.buffer]
-
-			gl.EnableVertexAttribArray(3)
-
-			gl.BindBuffer(gl.ARRAY_BUFFER, normalsGLBuffer)
-			gl.VertexAttribPointer(3, 3, gl.FLOAT, gl.FALSE, i32(attribute.data.stride), uintptr(attribute.data.offset + attribute.data.buffer_view.offset))
-		}
-		}
-	}
-
-	if primitive.indices != nil {
-		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, glBuffers[primitive.indices.buffer_view.buffer])
-
-		// right now the only component types I'm supporting, will change this to proper mapping later
-		componentType : u32 = primitive.indices.component_type == .r_16u ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT
-		gl.DrawElements(gl.TRIANGLES, drawCount, componentType, rawptr(uintptr(primitive.indices.offset + primitive.indices.buffer_view.offset)))
-	} else {
-		gl.DrawArrays(gl.TRIANGLES, 0, drawCount)
-	}
 }

@@ -25,7 +25,6 @@ ui_create :: proc(this: ^UIShader) {
 	gl.EnableVertexAttribArray(2)
 
 	gl.GenTextures(1, &this.glAtlasTexture)
-	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, this.glAtlasTexture)
 	// temporarily allow us to specify a texture that is 1 byte per element
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)

@@ -46,9 +46,6 @@ LastMouseX, LastMouseY: f64 = 0, 0
 // the CAMERA_DEFAULT_FRONT direction
 CameraYaw, CameraPitch: f32 = -90, 0
 
-// the GL ID of textures which are solid color and used as placeholders when we don't need a texture
-WhiteGLTexture: u32
-
 SettingsType :: struct {
 	wireframeModeEnabled: bool,
 	scenePath: string,
@@ -130,11 +127,6 @@ main :: proc() {
 			gl.DeleteTextures(1, &glTexture)
 		}
 	}
-	// just a 1x1 white texture to use when there is no diffuse on the object
-	gl.GenTextures(1, &WhiteGLTexture)
-	defer gl.DeleteTextures(1, &WhiteGLTexture)
-	gl.BindTexture(gl.TEXTURE_2D, WhiteGLTexture)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, raw_data([]f32{1.0, 1.0, 1.0, 1.0}))
 
 	phongShader := PhongShader{}
 	phong_create(&phongShader)

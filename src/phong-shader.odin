@@ -16,6 +16,9 @@ PhongShader :: struct {
 	glProgram: u32,
 	glVAO: u32,
 
+	// the GL ID of textures which are solid color and used as placeholders when we don't need a texture
+	glWhiteTexture: u32,
+
 	pointLightPosition: [3]f32,
 	pointLightColor: [3]f32,
 }
@@ -48,6 +51,12 @@ phong_create :: proc(this: ^PhongShader) {
 	gl.GenVertexArrays(1, &this.glVAO)
 
 	gl.UseProgram(this.glProgram)
+
+	// just a 1x1 white texture to use when there is no diffuse on the object
+	gl.GenTextures(1, &this.glWhiteTexture)
+	defer gl.DeleteTextures(1, &this.glWhiteTexture)
+	gl.BindTexture(gl.TEXTURE_2D, this.glWhiteTexture)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, raw_data([]f32{1.0, 1.0, 1.0, 1.0}))
 
 	projectionMatrix := linalg.matrix4_perspective_f32(
 		linalg.to_radians(f32(45)),
@@ -170,7 +179,7 @@ phong_draw :: proc(this: ^PhongShader, model: ^matrix[4, 4]f32, input: ^PhongSha
 
 	// defaults for material
 	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, WhiteGLTexture)
+	gl.BindTexture(gl.TEXTURE_2D, this.glWhiteTexture)
 	// no emissive
 	gl.Uniform3fv(gl.GetUniformLocation(this.glProgram, "objectMaterial.emissiveColor"), 1, raw_data(&[?]f32{0, 0, 0}))
 	// pure white for diffuse

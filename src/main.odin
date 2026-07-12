@@ -102,7 +102,7 @@ main :: proc() {
 	// a map of gltf texture pointers to gl texture IDs
 	glTextures := make(map[^cgltf.texture]u32)
 	defer delete(glTextures)
-	sceneData := LoadScene(Settings.scenePath)
+	sceneData := load_scene(Settings.scenePath)
 	defer cgltf.free(sceneData)
 	if sceneData.scene != nil {
 		for buffer, i in sceneData.buffers {
@@ -115,7 +115,7 @@ main :: proc() {
 		}
 
 		for &texture, i in sceneData.textures {
-			glTextures[&sceneData.textures[i]] = LoadTexture(Settings.scenePath, &texture)
+			glTextures[&sceneData.textures[i]] = load_texture(Settings.scenePath, &texture)
 		}
 	}
 	defer {
@@ -358,7 +358,7 @@ main :: proc() {
 
 		// UI rendering
 		{
-			windowWidth, windowHeight := glfw.GetFramebufferSize(window)
+			windowWidth, windowHeight := glfw.GetWindowSize(window)
 			ui_pre_draw(&uiShader, f32(windowWidth), f32(windowHeight))
 
 			muiCommand : ^microui.Command
@@ -458,7 +458,7 @@ mouse_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: c.double) {
 	)
 }
 
-LoadTexture :: proc(gltfPath: string, texture: ^cgltf.texture) -> u32 {
+load_texture :: proc(gltfPath: string, texture: ^cgltf.texture) -> u32 {
     textureWidth, textureHeight, textureChannelCount: c.int
 
 	texturePath := filepath.join({ filepath.dir(gltfPath), string(texture.image_.uri) }) or_else
@@ -506,7 +506,7 @@ LoadTexture :: proc(gltfPath: string, texture: ^cgltf.texture) -> u32 {
     return glTexture
 }
 
-LoadScene :: proc(path: string) -> ^cgltf.data {
+load_scene :: proc(path: string) -> ^cgltf.data {
 	scenePathCString := strings.clone_to_cstring(Settings.scenePath)
 	defer delete(scenePathCString)
 

@@ -99,10 +99,6 @@ main :: proc() {
 
 	glfw.SetFramebufferSizeCallback(window, framebuffer_size_callback)
 
-	phongShader := PhongShader{}
-	phong_create(&phongShader)
-	defer phong_destroy(&phongShader)
-
 	// a map of gltf buffer pointers to gl buffer IDs
 	glBuffers := make(map[^cgltf.buffer]u32)
 	defer delete(glBuffers)
@@ -140,29 +136,13 @@ main :: proc() {
 	gl.BindTexture(gl.TEXTURE_2D, WhiteGLTexture)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, raw_data([]f32{1.0, 1.0, 1.0, 1.0}))
 
-	// For the UI, I'm using a separate shader, and also separate VAO, so I don't have to keep juggling enabling/disabling
-	// the right mappings on the VAO
-	glUIProgram := gl.load_shaders("shaders/ui.vert", "shaders/ui.frag") or_else panic("Failed to load and compile UI shaders")
-	defer gl.DeleteProgram(glUIProgram)
-	uiVAO: u32
-	gl.GenVertexArrays(1, &uiVAO)
-	defer gl.DeleteVertexArrays(1, &uiVAO)
-	gl.BindVertexArray(uiVAO)
+	phongShader := PhongShader{}
+	phong_create(&phongShader)
+	defer phong_destroy(&phongShader)
 
-	uiAtlasTexture: u32
-	gl.GenTextures(1, &uiAtlasTexture)
-	defer gl.DeleteTextures(1, &uiAtlasTexture)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, uiAtlasTexture)
-	// temporarily allow us to specify a texture that is 1 byte per element
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RED, microui.DEFAULT_ATLAS_WIDTH, microui.DEFAULT_ATLAS_HEIGHT, 0, gl.RED, gl.UNSIGNED_BYTE, &microui.default_atlas_alpha)
-	// back to the default it would be at
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
+	uiShader := UIShader{}
+	ui_create(&uiShader)
+	defer ui_destroy(&uiShader)
 
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -382,37 +362,19 @@ main :: proc() {
 			phong_draw(&phongShader, &modelMatrix, &input)
 		}
 		phong_post_draw(&phongShader)
+		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 
 		// UI rendering
-		gl.UseProgram(glUIProgram)
-		gl.BindVertexArray(uiVAO)
 		{
-			gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
-
-			gl.EnableVertexAttribArray(0)
-			gl.EnableVertexAttribArray(1)
-			gl.EnableVertexAttribArray(2)
-
-			gl.Disable(gl.DEPTH_TEST)
-
 			windowWidth, windowHeight := glfw.GetFramebufferSize(window)
-			// for the UI, we use a coordinate system where origin is top left, x grows to the right and y grows up
-			uiProjectionMatrix := linalg.matrix_ortho3d_f32(0, f32(windowWidth), f32(windowHeight), 0, -1, 1)
+			ui_pre_draw(&uiShader, f32(windowWidth), f32(windowHeight))
 
-			gl.ActiveTexture(gl.TEXTURE0)
-			gl.BindTexture(gl.TEXTURE_2D, uiAtlasTexture)
-
-			gl.UniformMatrix4fv(
-				gl.GetUniformLocation(glUIProgram, "projection"),
-				1,
-				false,
-				raw_data(&uiProjectionMatrix)
-			)
 			muiCommand : ^microui.Command
 			for commandType in microui.next_command_iterator(mui, &muiCommand) {
 				#partial switch command in commandType {
 				case ^microui.Command_Rect:
-					UIDrawTexturedQuad(
+					ui_draw(
+						&uiShader,
 						command.rect,
 						microui.default_atlas[microui.DEFAULT_ATLAS_WHITE],
 						command.color
@@ -425,7 +387,8 @@ main :: proc() {
 						characterRect.w = atlasRect.w
 						characterRect.h = atlasRect.h
 
-						UIDrawTexturedQuad(
+						ui_draw(
+							&uiShader,
 							characterRect,
 							atlasRect,
 							command.color
@@ -434,13 +397,16 @@ main :: proc() {
 						characterRect.x += characterRect.w
 					}
 				case ^microui.Command_Icon:
-					UIDrawTexturedQuad(
+					ui_draw(
+						&uiShader,
 						command.rect,
 						microui.default_atlas[command.id],
 						command.color
 					)
 				}
 			}
+
+			ui_post_draw(&uiShader)
 		}
 
 		glfw.SwapBuffers(window)
@@ -546,37 +512,6 @@ LoadTexture :: proc(gltfPath: string, texture: ^cgltf.texture) -> u32 {
     gl.GenerateMipmap(gl.TEXTURE_2D)
 
     return glTexture
-}
-
-UIDrawTexturedQuad :: proc(rect, textureRect: microui.Rect, color: microui.Color) {
-	quadBuffer: u32
-	gl.GenBuffers(1, &quadBuffer)
-	defer gl.DeleteBuffers(1, &quadBuffer)
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, quadBuffer)
-
-	x, y, width, height := f32(rect.x), f32(rect.y), f32(rect.w), f32(rect.h)
-	texX, texY, texWidth, texHeight := f32(textureRect.x) / microui.DEFAULT_ATLAS_WIDTH, f32(textureRect.y) / microui.DEFAULT_ATLAS_HEIGHT, f32(textureRect.w) / microui.DEFAULT_ATLAS_WIDTH, f32(textureRect.h) / microui.DEFAULT_ATLAS_HEIGHT
-	r, g, b, a := f32(color.r) / 255, f32(color.g) / 255, f32(color.b) / 255, f32(color.a) / 255
-
-	// in counter clockwise order
-	quadData := [?]f32 {
-		// verts                 // color       // tex coords
-		x, y + height,           r, g, b, a,    texX, texY + texHeight,
-		x + width, y,            r, g, b, a,    texX + texWidth, texY,
-		x, y,                    r, g, b, a,    texX, texY,
-
-		x + width, y + height,   r, g, b, a,    texX + texWidth, texY + texHeight,
-		x + width, y,            r, g, b, a,    texX + texWidth, texY,
-		x, y + height,           r, g, b, a,    texX, texY + texHeight,
-	}
-	gl.BufferData(gl.ARRAY_BUFFER, size_of(quadData), &quadData, gl.STATIC_DRAW)
-
-	gl.VertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 0)
-	gl.VertexAttribPointer(1, 4, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 2 * size_of(f32))
-	gl.VertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, 8 * size_of(f32), 6 * size_of(f32))
-
-	gl.DrawArrays(gl.TRIANGLES, 0, 6)
 }
 
 LoadScene :: proc(path: string) -> ^cgltf.data {

@@ -50,6 +50,7 @@ LastMouseX, LastMouseY: f64 = 0, 0
 CameraYaw, CameraPitch: f32 = -90, 0
 
 SettingsType :: struct {
+	postProcessingEnabled: bool,
 	wireframeModeEnabled: bool,
 	scenePath: string,
 }
@@ -158,7 +159,11 @@ main :: proc() {
 		)
 		modelMatrix: matrix[4, 4]f32
 
-		gl.BindFramebuffer(gl.FRAMEBUFFER, glFirstPassFramebuffer)
+		if (Settings.postProcessingEnabled) {
+			gl.BindFramebuffer(gl.FRAMEBUFFER, glFirstPassFramebuffer)
+		} else {
+			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		}
 		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
@@ -216,14 +221,16 @@ main :: proc() {
 		phong_post_draw(&phongShader)
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 
-		// post processing
-		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
-		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		if (Settings.postProcessingEnabled) {
+			// post processing
+			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+			gl.ClearColor(0.3, 0.4, 0.5, 1.0)
+			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		post_process_pre_draw(&postProcessShader)
-		post_process_draw(&postProcessShader, glFirstPassColorBuffer, {-1, -1, 2, 2})
-		post_process_post_draw(&postProcessShader)
+			post_process_pre_draw(&postProcessShader)
+			post_process_draw(&postProcessShader, glFirstPassColorBuffer, {-1, -1, 2, 2})
+			post_process_post_draw(&postProcessShader)
+		}
 
 		// UI rendering
 		{
@@ -396,6 +403,8 @@ process_input :: proc(window: glfw.WindowHandle, mui: ^microui.Context) {
 
 	microui.begin(mui)
 	if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 200, 100 }) {
+		microui.checkbox(mui, "Enable Post-processing", &Settings.postProcessingEnabled)
+
 		microui.checkbox(mui, "Wireframe Mode", &Settings.wireframeModeEnabled)
 
 		microui.end_window(mui)

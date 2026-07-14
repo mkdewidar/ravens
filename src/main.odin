@@ -50,7 +50,7 @@ LastMouseX, LastMouseY: f64 = 0, 0
 CameraYaw, CameraPitch: f32 = -90, 0
 
 SettingsType :: struct {
-	postProcessingEnabled: bool,
+	postProcessEffect: PostProcessEffect,
 	wireframeModeEnabled: bool,
 	scenePath: string,
 }
@@ -159,7 +159,7 @@ main :: proc() {
 		)
 		modelMatrix: matrix[4, 4]f32
 
-		if (Settings.postProcessingEnabled) {
+		if (Settings.postProcessEffect != .None) {
 			gl.BindFramebuffer(gl.FRAMEBUFFER, glFirstPassFramebuffer)
 		} else {
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -221,13 +221,13 @@ main :: proc() {
 		phong_post_draw(&phongShader)
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 
-		if (Settings.postProcessingEnabled) {
+		if (Settings.postProcessEffect != .None) {
 			// post processing
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 			gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-			post_process_pre_draw(&postProcessShader)
+			post_process_pre_draw(&postProcessShader, Settings.postProcessEffect)
 			post_process_draw(&postProcessShader, glFirstPassColorBuffer, {-1, -1, 2, 2})
 			post_process_post_draw(&postProcessShader)
 		}
@@ -403,9 +403,23 @@ process_input :: proc(window: glfw.WindowHandle, mui: ^microui.Context) {
 
 	microui.begin(mui)
 	if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 200, 100 }) {
-		microui.checkbox(mui, "Enable Post-processing", &Settings.postProcessingEnabled)
-
 		microui.checkbox(mui, "Wireframe Mode", &Settings.wireframeModeEnabled)
+
+		rowLayout := [?]i32{0, 0}
+		microui.layout_row(mui, rowLayout[:])
+		microui.label(mui, "Post-processing: ")
+		if .SUBMIT in microui.button(mui, fmt.tprintf("%v", Settings.postProcessEffect)) {
+			microui.open_popup(mui, "post-processing-dropdown")
+		}
+		if microui.begin_popup(mui, "post-processing-dropdown") {
+			for e in PostProcessEffect {
+				if .SUBMIT in microui.button(mui, fmt.tprintf("%v", e)) {
+					Settings.postProcessEffect = e
+				}
+			}
+
+			microui.end_popup(mui)
+		}
 
 		microui.end_window(mui)
 	}

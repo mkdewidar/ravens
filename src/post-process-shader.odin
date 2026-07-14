@@ -9,6 +9,11 @@ PostProcessShader :: struct {
 	glArrayBuffer: u32,
 }
 
+PostProcessEffect :: enum {
+	None = 0,
+	Greyscale = 1,
+}
+
 // loads and compiles the shader
 post_process_create :: proc(this: ^PostProcessShader) {
 	this.glProgram = gl.load_shaders("shaders/post-process.vert", "shaders/post-process.frag") or_else panic("Failed to load and compile post-process shaders")
@@ -23,7 +28,7 @@ post_process_create :: proc(this: ^PostProcessShader) {
 }
 
 // to be called once in the beginning of the loop
-post_process_pre_draw :: proc(this: ^PostProcessShader) {
+post_process_pre_draw :: proc(this: ^PostProcessShader, effect: PostProcessEffect) {
 	gl.BindVertexArray(this.glVAO)
 
 	gl.Disable(gl.DEPTH_TEST)
@@ -33,6 +38,8 @@ post_process_pre_draw :: proc(this: ^PostProcessShader) {
 
 	gl.VertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, 4 * size_of(f32), 0)
 	gl.VertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, 4 * size_of(f32), 2 * size_of(f32))
+
+	gl.Uniform1i(gl.GetUniformLocation(this.glProgram, "effect"), i32(effect))
 }
 
 // used to create and issue a draw call

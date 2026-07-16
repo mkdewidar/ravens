@@ -128,6 +128,13 @@ main :: proc() {
 	sceneData := scene_load(Settings.scenePath, &glBuffers, &glTextures)
 	defer scene_destroy(sceneData, &glBuffers, &glTextures)
 
+	glSkyboxCubemap := load_cubemap(Settings.scenePath, "skybox/right.jpg", "skybox/left.jpg", "skybox/top.jpg", "skybox/bottom.jpg", "skybox/front.jpg", "skybox/back.jpg")
+	defer gl.DeleteTextures(1, &glSkyboxCubemap)
+
+	skyboxShader := SkyboxShader{}
+	skybox_create(&skyboxShader)
+	defer skybox_destroy(&skyboxShader)
+
 	phongShader := PhongShader{}
 	phong_create(&phongShader)
 	defer phong_destroy(&phongShader)
@@ -152,6 +159,12 @@ main :: proc() {
 
 		process_input(window, mui)
 
+		projectionMatrix := linalg.matrix4_perspective_f32(
+			linalg.to_radians(f32(45)),
+			WINDOW_ASPECT_RATIO,
+			0.1,
+			100,
+		)
 		viewMatrix := linalg.matrix4_look_at(
 			CameraPos,
 			CameraPos + CameraFront,
@@ -167,8 +180,12 @@ main :: proc() {
 		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
+		skybox_pre_draw(&skyboxShader, &viewMatrix, &projectionMatrix)
+		skybox_draw(&skyboxShader, glSkyboxCubemap)
+		skybox_post_draw(&skyboxShader)
+
 		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
-		phong_pre_draw(&phongShader, &viewMatrix, &CameraPos)
+		phong_pre_draw(&phongShader, &viewMatrix, &projectionMatrix, &CameraPos)
 		for node in sceneData.scene.nodes {
 			if node.mesh == nil {
 				// for now ignoring nested nodes, root ones only
@@ -472,6 +489,56 @@ load_texture :: proc(gltfPath: string, texture: ^cgltf.texture) -> u32 {
     gl.GenerateMipmap(gl.TEXTURE_2D)
 
     return glTexture
+}
+
+load_cubemap :: proc(gltfPath, right, left, top, bottom, front, back: string) -> u32 {
+    glCubemap: u32
+    gl.GenTextures(1, &glCubemap)
+
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, glCubemap)
+
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+    textureWidth, textureHeight, textureChannelCount : c.int
+
+    cubemapFaceNames := []string{right, left, top, bottom, front, back}
+    for faceName, i in cubemapFaceNames {
+    	texturePath := filepath.join({ filepath.dir(gltfPath), faceName }) or_else
+     		panic(fmt.tprintfln("Failed to construct texture path %v", faceName))
+    	defer delete(texturePath)
+
+     	textureCString := strings.clone_to_cstring(texturePath)
+      	defer delete(textureCString)
+       	textureBytes := stb.load(
+           textureCString,
+           &textureWidth,
+           &textureHeight,
+           &textureChannelCount,
+           3, // to match the hard coded RGB format we'll use below
+       )
+       if textureBytes == nil {
+           panic(fmt.tprintf("Failed to load texture %s", stb.failure_reason()))
+       }
+       defer stb.image_free(textureBytes)
+
+       gl.TexImage2D(
+           gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(i),
+           0,
+           gl.RGB,
+           textureWidth,
+           textureHeight,
+           0,
+           gl.RGB,
+           gl.UNSIGNED_BYTE,
+           textureBytes,
+       )
+    }
+
+    return glCubemap
 }
 
 scene_load :: proc(path: string, glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgltf.texture]u32) -> ^cgltf.data {

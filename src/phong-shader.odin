@@ -58,19 +58,6 @@ phong_create :: proc(this: ^PhongShader) {
 	gl.BindTexture(gl.TEXTURE_2D, this.glWhiteTexture)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, raw_data([]f32{1.0, 1.0, 1.0, 1.0}))
 
-	projectionMatrix := linalg.matrix4_perspective_f32(
-		linalg.to_radians(f32(45)),
-		WINDOW_ASPECT_RATIO,
-		0.1,
-		100,
-	)
-	gl.UniformMatrix4fv(
-		gl.GetUniformLocation(this.glProgram, "projection"),
-		1,
-		false,
-		raw_data(&projectionMatrix),
-	)
-
 	fmt.printfln("Initial camera parameters:\n\tpos: %v\n\tfront: %v\n\t", CameraPos, CameraFront)
 
 	fmt.printfln("Light parameters:")
@@ -108,7 +95,7 @@ phong_create :: proc(this: ^PhongShader) {
 }
 
 // to be called once in the beginning of the loop
-phong_pre_draw :: proc(this: ^PhongShader, view: ^matrix[4, 4]f32, viewPos: ^[3]f32) {
+phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, viewPos: ^[3]f32) {
 	gl.BindVertexArray(this.glVAO)
 
 	gl.UseProgram(this.glProgram)
@@ -125,6 +112,12 @@ phong_pre_draw :: proc(this: ^PhongShader, view: ^matrix[4, 4]f32, viewPos: ^[3]
 		gl.GetUniformLocation(this.glProgram, "viewPos"),
 		1,
 		raw_data(viewPos),
+	)
+	gl.UniformMatrix4fv(
+		gl.GetUniformLocation(this.glProgram, "projection"),
+		1,
+		false,
+		raw_data(projection),
 	)
 }
 

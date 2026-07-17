@@ -22,7 +22,7 @@ skybox_create :: proc(this: ^SkyboxShader) {
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, this.glArrayBuffer)
 	quadData := [?]f32 {
-		// verts, in local coordinates
+		// verts, in global coordinates
 		-1,  1, -1,
 		-1, -1, -1,
 		1, -1, -1,
@@ -76,7 +76,8 @@ skybox_pre_draw :: proc(this: ^SkyboxShader, view, projection: ^matrix[4, 4]f32)
 
 	gl.UseProgram(this.glProgram)
 
-	gl.DepthMask(gl.FALSE)
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.LEQUAL)
 
 	gl.UniformMatrix4fv(
 		gl.GetUniformLocation(this.glProgram, "projection"),
@@ -102,7 +103,8 @@ skybox_draw :: proc(this: ^SkyboxShader, glCubemap: u32) {
 
 // to be called once after all drawing is done to undo global state
 skybox_post_draw :: proc(this: ^SkyboxShader) {
-	gl.DepthMask(gl.TRUE)
+	gl.Disable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.LESS)
 }
 
 skybox_destroy :: proc(this: ^SkyboxShader) {

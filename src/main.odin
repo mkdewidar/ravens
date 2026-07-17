@@ -180,10 +180,6 @@ main :: proc() {
 		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		skybox_pre_draw(&skyboxShader, &viewMatrix, &projectionMatrix)
-		skybox_draw(&skyboxShader, glSkyboxCubemap)
-		skybox_post_draw(&skyboxShader)
-
 		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
 		phong_pre_draw(&phongShader, &viewMatrix, &projectionMatrix, &CameraPos)
 		for node in sceneData.scene.nodes {
@@ -248,6 +244,10 @@ main :: proc() {
 			post_process_draw(&postProcessShader, glFirstPassColorBuffer, {-1, -1, 2, 2})
 			post_process_post_draw(&postProcessShader)
 		}
+
+		skybox_pre_draw(&skyboxShader, &viewMatrix, &projectionMatrix)
+		skybox_draw(&skyboxShader, glSkyboxCubemap)
+		skybox_post_draw(&skyboxShader)
 
 		// UI rendering
 		{

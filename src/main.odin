@@ -33,6 +33,8 @@ WINDOW_ASPECT_RATIO :: WINDOW_WIDTH / WINDOW_HEIGHT
 RENDER_WIDTH :: WINDOW_WIDTH
 RENDER_HEIGHT :: WINDOW_HEIGHT
 
+MSAA_SAMPLE_COUNT :: 4
+
 CAMERA_DEFAULT_POS :: [?]f32{0, 0, 5}
 CAMERA_DEFAULT_FRONT :: [?]f32{0, 0, -1}
 
@@ -52,11 +54,13 @@ CameraYaw, CameraPitch: f32 = -90, 0
 SettingsType :: struct {
 	postProcessEffect: PostProcessEffect,
 	wireframeModeEnabled: bool,
+	msaaEnabled: bool,
 	scenePath: string,
 }
 Settings := SettingsType {
 	wireframeModeEnabled = false,
 	scenePath = "assets/scene.gltf",
+	msaaEnabled = true,
 }
 
 main :: proc() {
@@ -71,6 +75,7 @@ main :: proc() {
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, OPENGL_MINOR_VERSION)
 	// primarily for macOS
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+	glfw.WindowHint(glfw.SAMPLES, MSAA_SAMPLE_COUNT)
 
 	window := glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Ravens", nil, nil)
 	if window == nil {
@@ -107,17 +112,36 @@ main :: proc() {
 
 	gl.GenTextures(1, &glFirstPassColorBuffer)
 	defer gl.DeleteTextures(1, &glFirstPassColorBuffer)
-	gl.BindTexture(gl.TEXTURE_2D, glFirstPassColorBuffer)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, RENDER_WIDTH, RENDER_HEIGHT, 0, gl.RGB, gl.UNSIGNED_BYTE, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, glFirstPassColorBuffer, 0)
+	gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, glFirstPassColorBuffer)
+	gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, MSAA_SAMPLE_COUNT, gl.RGB, RENDER_WIDTH, RENDER_HEIGHT, true)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D_MULTISAMPLE, glFirstPassColorBuffer, 0)
 
 	gl.GenRenderbuffers(1, &glFirstPassDepthBuffer)
 	defer gl.DeleteRenderbuffers(1, &glFirstPassDepthBuffer)
 	gl.BindRenderbuffer(gl.RENDERBUFFER, glFirstPassDepthBuffer)
-	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, RENDER_WIDTH, RENDER_HEIGHT)
+	gl.RenderbufferStorageMultisample(gl.RENDERBUFFER, MSAA_SAMPLE_COUNT, gl.DEPTH24_STENCIL8, RENDER_WIDTH, RENDER_HEIGHT)
 	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, glFirstPassDepthBuffer)
+
+	// A whole other framebuffer that is not multisampled, the multisampled one will get blitted into this
+	// one, essentially converting the multisampled framebuffer to a basic single-sample one for the post-processor
+	glAAFirstPassFramebuffer, glAAFirstPassColorBuffer, glAAFirstPassDepthBuffer: u32
+	gl.GenFramebuffers(1, &glAAFirstPassFramebuffer)
+	defer gl.DeleteFramebuffers(1, &glAAFirstPassFramebuffer)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, glAAFirstPassFramebuffer)
+
+	gl.GenTextures(1, &glAAFirstPassColorBuffer)
+	defer gl.DeleteTextures(1, &glAAFirstPassColorBuffer)
+	gl.BindTexture(gl.TEXTURE_2D, glAAFirstPassColorBuffer)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, RENDER_WIDTH, RENDER_HEIGHT, 0, gl.RGB, gl.UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, glAAFirstPassColorBuffer, 0)
+
+	gl.GenRenderbuffers(1, &glAAFirstPassDepthBuffer)
+	defer gl.DeleteRenderbuffers(1, &glAAFirstPassDepthBuffer)
+	gl.BindRenderbuffer(gl.RENDERBUFFER, glAAFirstPassDepthBuffer)
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, RENDER_WIDTH, RENDER_HEIGHT)
+	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, glAAFirstPassDepthBuffer)
 
 	// a map of gltf buffer pointers to gl buffer IDs
 	glBuffers := make(map[^cgltf.buffer]u32)
@@ -171,6 +195,12 @@ main :: proc() {
 			WORLD_UP
 		)
 		modelMatrix: matrix[4, 4]f32
+
+		if (Settings.msaaEnabled) {
+			gl.Enable(gl.MULTISAMPLE)
+		} else {
+			gl.Disable(gl.MULTISAMPLE)
+		}
 
 		if (Settings.postProcessEffect != .None) {
 			gl.BindFramebuffer(gl.FRAMEBUFFER, glFirstPassFramebuffer)
@@ -234,20 +264,25 @@ main :: proc() {
 		phong_post_draw(&phongShader)
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 
+		skybox_pre_draw(&skyboxShader, &viewMatrix, &projectionMatrix)
+		skybox_draw(&skyboxShader, glSkyboxCubemap)
+		skybox_post_draw(&skyboxShader)
+
 		if (Settings.postProcessEffect != .None) {
+			// convert anti-aliased buffer down to single-sampled one
+			gl.BindFramebuffer(gl.READ_FRAMEBUFFER, glFirstPassFramebuffer)
+			gl.BindFramebuffer(gl.DRAW_FRAMEBUFFER, glAAFirstPassFramebuffer)
+			gl.BlitFramebuffer(0, 0, RENDER_WIDTH, RENDER_HEIGHT, 0, 0, RENDER_WIDTH, RENDER_HEIGHT, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST)
+
 			// post processing
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 			gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 			post_process_pre_draw(&postProcessShader, Settings.postProcessEffect)
-			post_process_draw(&postProcessShader, glFirstPassColorBuffer, {-1, -1, 2, 2})
+			post_process_draw(&postProcessShader, glAAFirstPassColorBuffer, {-1, -1, 2, 2})
 			post_process_post_draw(&postProcessShader)
 		}
-
-		skybox_pre_draw(&skyboxShader, &viewMatrix, &projectionMatrix)
-		skybox_draw(&skyboxShader, glSkyboxCubemap)
-		skybox_post_draw(&skyboxShader)
 
 		// UI rendering
 		{
@@ -420,6 +455,8 @@ process_input :: proc(window: glfw.WindowHandle, mui: ^microui.Context) {
 
 	microui.begin(mui)
 	if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 200, 100 }) {
+		microui.checkbox(mui, "MSAA", &Settings.msaaEnabled)
+
 		microui.checkbox(mui, "Wireframe Mode", &Settings.wireframeModeEnabled)
 
 		rowLayout := [?]i32{0, 0}

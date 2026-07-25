@@ -19,8 +19,6 @@ PhongShader :: struct {
 	// the GL ID of textures which are solid color and used as placeholders when we don't need a texture
 	glWhiteTexture: u32,
 
-	pointLightPosition: [3]f32,
-	pointLightColor: [3]f32,
 	blinnEnabled: bool,
 }
 
@@ -42,8 +40,17 @@ PhongShaderInput :: struct {
 	}
 }
 
+DirectionalLight :: struct {
+	direction, color: [3]f32,
+}
+
+PointLight :: struct {
+	position, color: [3]f32,
+	constantAttenuation, linearAttenuation, quadraticAttenuation: f32,
+}
+
 // loads and compiles the shader
-phong_create :: proc(this: ^PhongShader) {
+phong_create :: proc(this: ^PhongShader, directLight: ^DirectionalLight, pointLight: ^PointLight) {
 	// yet another fantastic helper function for loading, compiling, and attaching shaders to this OpenGL program
 	this.glProgram = gl.load_shaders("shaders/phong.vert", "shaders/phong.frag") or_else panic(
 		"Failed to load and compile shaders",
@@ -58,40 +65,30 @@ phong_create :: proc(this: ^PhongShader) {
 	gl.BindTexture(gl.TEXTURE_2D, this.glWhiteTexture)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, raw_data([]f32{1.0, 1.0, 1.0, 1.0}))
 
-	fmt.printfln("Initial camera parameters:\n\tpos: %v\n\tfront: %v\n\t", CameraPos, CameraFront)
-
-	fmt.printfln("Light parameters:")
-
-	directLightDirection := linalg.normalize([?]f32{ -1, -1, 0 })
 	gl.Uniform3fv(
 		gl.GetUniformLocation(this.glProgram, "directLight.direction"),
 		1,
-		raw_data(&directLightDirection),
+		raw_data(&directLight.direction),
 	)
-	directLightColor := [?]f32{ 1, 1, 1 }
 	gl.Uniform3fv(
 		gl.GetUniformLocation(this.glProgram, "directLight.color"),
 		1,
-		raw_data(&directLightColor),
+		raw_data(&directLight.color),
 	)
-	fmt.printfln("\tdirectLight\n\t\tdirection: %v\n\t\tcolor: %v", directLightDirection, directLightColor)
 
-	this.pointLightPosition = [?]f32{ 0, 5, 0 }
 	gl.Uniform3fv(
 		gl.GetUniformLocation(this.glProgram, "pointLights[0].position"),
 		1,
-		raw_data(&this.pointLightPosition),
+		raw_data(&pointLight.position),
 	)
-	this.pointLightColor = [?]f32{ 0, 0, 1 }
 	gl.Uniform3fv(
 		gl.GetUniformLocation(this.glProgram, "pointLights[0].color"),
 		1,
-		raw_data(&this.pointLightColor),
+		raw_data(&pointLight.color),
 	)
-    gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].constantAttenuation"), 1.0)
-    gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].linearAttenuation"), 0.07)
-    gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].quadraticAttenuation"), 0.017)
-    fmt.printfln("\tpoint light\n\t\tposition: %v\n\t\tcolor: %v", this.pointLightPosition, this.pointLightColor)
+    gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].constantAttenuation"), pointLight.constantAttenuation)
+    gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].linearAttenuation"), pointLight.linearAttenuation)
+    gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].quadraticAttenuation"), pointLight.quadraticAttenuation)
 }
 
 // to be called once in the beginning of the loop

@@ -157,12 +157,26 @@ main :: proc() {
 	glSkyboxCubemap := load_cubemap(Settings.scenePath, "skybox/right.jpg", "skybox/left.jpg", "skybox/top.jpg", "skybox/bottom.jpg", "skybox/front.jpg", "skybox/back.jpg")
 	defer gl.DeleteTextures(1, &glSkyboxCubemap)
 
+	fmt.printfln("Initial camera parameters:\n\tpos: %v\n\tfront: %v\n\t", CameraPos, CameraFront)
+	directLight: DirectionalLight = {
+		direction = linalg.normalize([?]f32{ -1, -1, 0 }),
+		color = [?]f32{ 1, 1, 1 },
+	}
+	pointLight: PointLight = {
+		position = [?]f32{ 0, 5, 0 },
+		color = [?]f32{ 0, 0, 1 },
+		constantAttenuation = 1.0,
+		linearAttenuation = 0.07,
+		quadraticAttenuation = 0.017,
+	}
+	fmt.printfln("Light parameters: \n\t%v, \n\t%v", directLight, pointLight)
+
 	skyboxShader := SkyboxShader{}
 	skybox_create(&skyboxShader)
 	defer skybox_destroy(&skyboxShader)
 
 	phongShader := PhongShader{}
-	phong_create(&phongShader)
+	phong_create(&phongShader, &directLight, &pointLight)
 	defer phong_destroy(&phongShader)
 
 	postProcessShader := PostProcessShader{}
@@ -257,10 +271,10 @@ main :: proc() {
 			case "emissive cube":
 				// for this cube we override the position and color to match the point light
 				modelMatrix =
-					linalg.matrix4_translate_f32(phongShader.pointLightPosition) *
+					linalg.matrix4_translate_f32(pointLight.position) *
 					linalg.matrix4_scale_f32({0.1, 0.1, 0.1}) *
 					1
-				node.mesh.primitives[0].material.emissive_factor = phongShader.pointLightColor
+				node.mesh.primitives[0].material.emissive_factor = pointLight.color
 			}
 
 			input := PhongShaderInput{}

@@ -199,6 +199,8 @@ main :: proc() {
 
 		process_input(window, mui)
 
+		simulate(sceneData, &pointLight)
+
 		projectionMatrix := linalg.matrix4_perspective_f32(
 			linalg.to_radians(f32(45)),
 			WINDOW_ASPECT_RATIO,
@@ -239,7 +241,7 @@ main :: proc() {
 			}
 
 			if node.has_matrix {
-			// the order of elements in gltf is the same as the order that Odin stores matrices
+				// the order of elements in gltf is the same as the order that Odin stores matrices
 				modelMatrix = transmute(matrix[4, 4]f32)node.matrix_
 			} else {
 				modelMatrix = linalg.matrix4_from_trs(
@@ -247,34 +249,6 @@ main :: proc() {
 					node.has_rotation ? transmute(quaternion128)node.rotation : linalg.QUATERNIONF32_IDENTITY,
 					node.has_scale ? node.scale : 1,
 				)
-			}
-
-			// objects that I want to handle specially, in the end this should all be in the scene description and data driven
-			// using time as a source for the angle allows it to simulate a frame rate independent rotation
-			// in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
-			// doing the operations in this order results in a neat rotate around a point effect
-			switch node.name {
-			case "square":
-				modelMatrix =
-					// rotates around the z at a rate of 50 degrees per second
-					linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
-					// move it up so its above the cube
-					linalg.matrix4_translate_f32({0, 1.5, 0}) *
-					// put the square flat on its side
-					linalg.matrix4_rotate_f32(linalg.to_radians(f32(90)), {1, 0, 0}) *
-					1
-			case "cube":
-				modelMatrix =
-					linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
-					linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0}) *
-					1
-			case "emissive cube":
-				// for this cube we override the position and color to match the point light
-				modelMatrix =
-					linalg.matrix4_translate_f32(pointLight.position) *
-					linalg.matrix4_scale_f32({0.1, 0.1, 0.1}) *
-					1
-				node.mesh.primitives[0].material.emissive_factor = pointLight.color
 			}
 
 			input := PhongShaderInput{}
@@ -503,6 +477,46 @@ process_input :: proc(window: glfw.WindowHandle, mui: ^microui.Context) {
 	microui.end(mui)
 }
 
+simulate :: proc(scene: ^cgltf.data, pointLight: ^PointLight) {
+	for node in scene.scene.nodes {
+		if node.mesh == nil {
+			// for now ignoring nested nodes, root ones only
+			continue
+		}
+
+		// objects that I want to handle specially, in the end this should all be in the scene description and data driven
+		// using time as a source for the angle allows it to simulate a frame rate independent rotation
+		// in contrast with just adding a fixed value each frame which would change how quick it rotates depending on frame rate
+		// doing the operations in this order results in a neat rotate around a point effect
+		switch node.name {
+		case "square":
+			node.has_matrix = true
+			node.matrix_ = transmute([16]f32)(
+				// rotates around the z at a rate of 50 degrees per second
+				linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0, 0, 1}) *
+				// move it up so its above the cube
+				linalg.matrix4_translate_f32({0, 1.5, 0}) *
+				// put the square flat on its side
+				linalg.matrix4_rotate_f32(linalg.to_radians(f32(90)), {1, 0, 0}) *
+				1)
+		case "cube":
+			node.has_matrix = true
+			node.matrix_ = transmute([16]f32)(
+				linalg.matrix4_rotate_f32(linalg.to_radians(f32(-55)), {1, 0, 0}) *
+				linalg.matrix4_rotate_f32(linalg.to_radians(f32(glfw.GetTime()) * 50), {0.5, 1, 0}) *
+				1)
+		case "emissive cube":
+			node.has_matrix = true
+			// for this cube we override the position and color to match the point light
+			node.matrix_ = transmute([16]f32)(
+				linalg.matrix4_translate_f32(pointLight.position) *
+				linalg.matrix4_scale_f32({0.1, 0.1, 0.1}) *
+				1)
+			node.mesh.primitives[0].material.emissive_factor = pointLight.color
+		}
+	}
+}
+
 load_texture :: proc(gltfPath: string, texture: ^cgltf.texture) -> u32 {
     textureWidth, textureHeight, textureChannelCount: c.int
 
@@ -599,53 +613,6 @@ load_cubemap :: proc(gltfPath, right, left, top, bottom, front, back: string) ->
     }
 
     return glCubemap
-}
-
-scene_load :: proc(path: string, glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgltf.texture]u32) -> ^cgltf.data {
-	scenePathCString := strings.clone_to_cstring(Settings.scenePath)
-	defer delete(scenePathCString)
-
-	sceneData, sceneParseResult := cgltf.parse_file(cgltf.options{}, scenePathCString)
-	if sceneParseResult != .success {
-		fmt.eprintfln("Failed to load scene file, returning empty scene")
-		return new(cgltf.data)
-	}
-
-	sceneParseResult = cgltf.load_buffers(cgltf.options{}, sceneData, scenePathCString)
-	if sceneParseResult != .success {
-		fmt.eprintfln("Failed to load scene buffers, returning empty scene")
-		cgltf.free(sceneData)
-		return new(cgltf.data)
-	}
-
-	if sceneData.scene != nil {
-		for buffer, i in sceneData.buffers {
-			bufferId: u32
-			gl.GenBuffers(1, &bufferId)
-			gl.BindBuffer(gl.ARRAY_BUFFER, bufferId)
-			gl.BufferData(gl.ARRAY_BUFFER, int(buffer.size), buffer.data, gl.STATIC_DRAW)
-
-			glBuffers[&sceneData.buffers[i]] = bufferId
-		}
-
-		for &texture, i in sceneData.textures {
-			glTextures[&sceneData.textures[i]] = load_texture(Settings.scenePath, &texture)
-		}
-	}
-
-	return sceneData
-}
-
-scene_destroy :: proc(sceneData: ^cgltf.data, glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgltf.texture]u32) {
-	cgltf.free(sceneData)
-
-	for _, &glBuffer in glBuffers {
-		gl.DeleteBuffers(1, &glBuffer)
-	}
-
-	for _, &glTexture in glTextures {
-		gl.DeleteTextures(1, &glTexture)
-	}
 }
 
 fill_draw_input :: proc(glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgltf.texture]u32, input: ^PhongShaderInput, primitive: ^cgltf.primitive) {

@@ -55,7 +55,6 @@ phong_create :: proc(this: ^PhongShader) {
 
 	// just a 1x1 white texture to use when there is no diffuse on the object
 	gl.GenTextures(1, &this.glWhiteTexture)
-	defer gl.DeleteTextures(1, &this.glWhiteTexture)
 	gl.BindTexture(gl.TEXTURE_2D, this.glWhiteTexture)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.FLOAT, raw_data([]f32{1.0, 1.0, 1.0, 1.0}))
 
@@ -225,6 +224,7 @@ phong_post_draw :: proc(this: ^PhongShader) {
 }
 
 phong_destroy :: proc(this: ^PhongShader) {
+	gl.DeleteTextures(1, &this.glWhiteTexture)
 	gl.DeleteVertexArrays(1, &this.glVAO)
 	gl.DeleteProgram(this.glProgram)
 }

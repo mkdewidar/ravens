@@ -10,7 +10,9 @@ UIShader :: struct {
 	glProgram: u32,
 	glVAO: u32,
 
-	glAtlasTexture: u32
+	glAtlasTexture: u32,
+
+	glDrawBuffer: u32,
 }
 
 // loads and compiles the shader
@@ -35,6 +37,8 @@ ui_create :: proc(this: ^UIShader) {
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RED, microui.DEFAULT_ATLAS_WIDTH, microui.DEFAULT_ATLAS_HEIGHT, 0, gl.RED, gl.UNSIGNED_BYTE, &microui.default_atlas_alpha)
 	// back to the default it would be at
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
+
+	gl.GenBuffers(1, &this.glDrawBuffer)
 }
 
 // to be called once in the beginning of the loop
@@ -60,13 +64,8 @@ ui_pre_draw :: proc(this: ^UIShader, width, height: f32) {
 }
 
 // used to create and issue a draw call
-
 ui_draw :: proc(this: ^UIShader, rect, textureRect: microui.Rect, color: microui.Color) {
-	quadBuffer: u32
-	gl.GenBuffers(1, &quadBuffer)
-	defer gl.DeleteBuffers(1, &quadBuffer)
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, quadBuffer)
+	gl.BindBuffer(gl.ARRAY_BUFFER, this.glDrawBuffer)
 
 	x, y, width, height := f32(rect.x), f32(rect.y), f32(rect.w), f32(rect.h)
 	texX, texY, texWidth, texHeight := f32(textureRect.x) / microui.DEFAULT_ATLAS_WIDTH, f32(textureRect.y) / microui.DEFAULT_ATLAS_HEIGHT, f32(textureRect.w) / microui.DEFAULT_ATLAS_WIDTH, f32(textureRect.h) / microui.DEFAULT_ATLAS_HEIGHT
@@ -97,6 +96,7 @@ ui_post_draw :: proc(this: ^UIShader) {
 }
 
 ui_destroy :: proc(this: ^UIShader) {
+	gl.DeleteBuffers(1, &this.glDrawBuffer)
 	gl.DeleteTextures(1, &this.glAtlasTexture)
 	gl.DeleteVertexArrays(1, &this.glVAO)
 	gl.DeleteProgram(this.glProgram)

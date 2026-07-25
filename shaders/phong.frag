@@ -39,6 +39,8 @@ uniform Material objectMaterial;
 // world position of the viewer, used for specular highlights
 uniform vec3 viewPos;
 
+uniform bool blinnEnabled;
+
 out vec4 fragColor;
 
 /*
@@ -63,9 +65,20 @@ vec3 specularColor(vec3 normal, vec3 lightDirection, vec3 lightColor, vec3 curre
     vec3 specularColor = vec3(0, 0, 0);
 
     if (material.specularity > 0) {
-        vec3 lightReflectionDir = reflect(lightDirection, normal);
-        float specularFactor = pow(max(dot(normalize(viewerPos - currentWorldPos), lightReflectionDir), 0.0), material.specularity);
+        float specularFactor;
 
+        if (blinnEnabled) {
+            vec3 incomingLightDir = normalize(lightDirection - currentWorldPos);
+            vec3 viewerLookDir = normalize(viewerPos - currentWorldPos);
+            vec3 halfwayVector = normalize(incomingLightDir + viewerLookDir);
+
+            specularFactor = pow(max(dot(normalize(halfwayVector), incomingLightDir), 0.0), material.specularity);
+        } else {
+            vec3 reflectedLightDir = reflect(lightDirection, normal);
+            vec3 viewerLookDir = viewerPos - currentWorldPos;
+
+            specularFactor = pow(max(dot(normalize(viewerLookDir), reflectedLightDir), 0.0), material.specularity);
+        }
         specularColor = specularFactor * lightColor;
 
         if (material.useSpecularMap) {

@@ -21,6 +21,7 @@ PhongShader :: struct {
 
 	pointLightPosition: [3]f32,
 	pointLightColor: [3]f32,
+	blinnEnabled: bool,
 }
 
 PhongShaderInput :: struct {
@@ -95,7 +96,7 @@ phong_create :: proc(this: ^PhongShader) {
 }
 
 // to be called once in the beginning of the loop
-phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, viewPos: ^[3]f32) {
+phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, viewPos: ^[3]f32, blinnEnabled: bool) {
 	gl.BindVertexArray(this.glVAO)
 
 	gl.UseProgram(this.glProgram)
@@ -118,6 +119,12 @@ phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, v
 		1,
 		false,
 		raw_data(projection),
+	)
+
+	this.blinnEnabled = blinnEnabled
+	gl.Uniform1i(
+		gl.GetUniformLocation(this.glProgram, "blinnEnabled"),
+		i32(this.blinnEnabled),
 	)
 }
 
@@ -192,7 +199,7 @@ phong_draw :: proc(this: ^PhongShader, model: ^matrix[4, 4]f32, input: ^PhongSha
 			gl.BindTexture(gl.TEXTURE_2D, input.material.glDiffuseTexture)
 		}
 
-		gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "objectMaterial.specularity"), input.material.specularity * 32)
+		gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "objectMaterial.specularity"), (this.blinnEnabled) ? input.material.specularity * 8 : input.material.specularity * 32)
 		gl.Uniform3fv(gl.GetUniformLocation(this.glProgram, "objectMaterial.specularColor"), 1, raw_data(&input.material.specularColor))
 
 		if input.material.glSpecularTexture != 0 {

@@ -55,12 +55,14 @@ SettingsType :: struct {
 	postProcessEffect: PostProcessEffect,
 	wireframeModeEnabled: bool,
 	msaaEnabled: bool,
+	blinnEnabled: bool,
 	scenePath: string,
 }
 Settings := SettingsType {
 	wireframeModeEnabled = false,
 	scenePath = "assets/scene.gltf",
 	msaaEnabled = true,
+	blinnEnabled = true,
 }
 
 main :: proc() {
@@ -211,7 +213,7 @@ main :: proc() {
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
-		phong_pre_draw(&phongShader, &viewMatrix, &projectionMatrix, &CameraPos)
+		phong_pre_draw(&phongShader, &viewMatrix, &projectionMatrix, &CameraPos, Settings.blinnEnabled)
 		for node in sceneData.scene.nodes {
 			if node.mesh == nil {
 				// for now ignoring nested nodes, root ones only
@@ -456,6 +458,8 @@ process_input :: proc(window: glfw.WindowHandle, mui: ^microui.Context) {
 	microui.begin(mui)
 	if microui.begin_window(mui, "Settings", microui.Rect { 5, 5, 200, 100 }) {
 		microui.checkbox(mui, "MSAA", &Settings.msaaEnabled)
+
+		microui.checkbox(mui, "Blinn-Phong", &Settings.blinnEnabled)
 
 		microui.checkbox(mui, "Wireframe Mode", &Settings.wireframeModeEnabled)
 

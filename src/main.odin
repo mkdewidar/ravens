@@ -206,8 +206,12 @@ main :: proc() {
 
 		if (Settings.postProcessEffect != .None) {
 			gl.BindFramebuffer(gl.FRAMEBUFFER, glFirstPassFramebuffer)
+
+			gl.Enable(gl.FRAMEBUFFER_SRGB)
 		} else {
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+
+			gl.Disable(gl.FRAMEBUFFER_SRGB)
 		}
 		gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -277,6 +281,7 @@ main :: proc() {
 			gl.BlitFramebuffer(0, 0, RENDER_WIDTH, RENDER_HEIGHT, 0, 0, RENDER_WIDTH, RENDER_HEIGHT, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST)
 
 			// post processing
+			gl.Enable(gl.FRAMEBUFFER_SRGB)
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 			gl.ClearColor(0.3, 0.4, 0.5, 1.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)

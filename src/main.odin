@@ -60,7 +60,7 @@ SettingsType :: struct {
 }
 Settings := SettingsType {
 	wireframeModeEnabled = false,
-	scenePath = "assets/scene.gltf",
+	scenePath = "assets/scene2.gltf",
 	msaaEnabled = true,
 	blinnEnabled = true,
 }

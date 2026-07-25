@@ -62,7 +62,7 @@ phong_create :: proc(this: ^PhongShader) {
 
 	fmt.printfln("Light parameters:")
 
-	directLightDirection := linalg.normalize([?]f32{ 0, -1, 0 })
+	directLightDirection := linalg.normalize([?]f32{ -1, -1, 0 })
 	gl.Uniform3fv(
 		gl.GetUniformLocation(this.glProgram, "directLight.direction"),
 		1,

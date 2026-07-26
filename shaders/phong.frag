@@ -90,7 +90,7 @@ vec3 specularColor(vec3 normal, vec3 lightDirection, vec3 lightColor, vec3 curre
 }
 
 vec4 colorUnderDirectionalLight(Material material, DirectionalLight dirLight, vec3 normal) {
-    vec3 diffuseColor = diffuseColor(normal, -dirLight.direction, dirLight.color, material, texCoordinates);
+    vec3 diffuseColor = diffuseColor(normal, dirLight.direction, dirLight.color, material, texCoordinates);
     vec3 specularColor = specularColor(normal, dirLight.direction, dirLight.color, viewPos, fragWorldPos, material, texCoordinates);
 
     return vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);

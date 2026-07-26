@@ -4,11 +4,14 @@ in vec3 fragWorldPos;
 in vec3 vertColor;
 in vec2 texCoordinates;
 in vec3 normalDirection;
+in vec4 directLightSpacePos;
 
 struct DirectionalLight {
     // should be normalised and incident (i.e pointing towards the fragment)
     vec3 direction;
     vec3 color;
+
+    sampler2D shadowMapTex;
 };
 uniform DirectionalLight directLight;
 
@@ -115,6 +118,18 @@ vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
     return vec4(vertColor * attenuation * (material.emissiveColor + diffuseColor + specularColor), 1.0);
 }
 
+float shadowFactor(DirectionalLight dLight, vec3 lightSpacePos, vec3 normal) {
+    // converts the position to 0-1 range which is used for texture lookups
+    vec3 depthMapCoordinates = (lightSpacePos.xyz * 0.5) + 0.5;
+
+    float closestDepth = texture(dLight.shadowMapTex, depthMapCoordinates.xy).r;
+    float currentDepth = depthMapCoordinates.z;
+
+    float shadowBias = max(0.05 * (1.0 - dot(normal, dLight.direction)), 0.005);
+    // 1 if in shadow, 0 if not
+    return closestDepth > (currentDepth - shadowBias) ? 0.0 : 1.0;
+}
+
 void main() {
     // must be re-normalised here before use as fragment shader interpolation does not
     // necessarily maintain the length of the vector
@@ -125,4 +140,7 @@ void main() {
     for (int i = 0; i < POINT_LIGHTS_COUNT; i++) {
         fragColor += colorUnderPointLight(objectMaterial, pointLights[i], normal);
     }
+
+    // perspective divide for the light-relative pos since that wouldn't have been done for us
+    fragColor *= (1 - shadowFactor(directLight, directLightSpacePos.xyz / directLightSpacePos.w, normal));
 }

@@ -12,6 +12,7 @@ out vec3 vertColor;
 out vec2 texCoordinates;
 // should already be normalised
 out vec3 normalDirection;
+out vec4 directLightSpacePos;
 
 // model matrix converts coordinates from object local to world coordinates
 uniform mat4 model;
@@ -20,6 +21,9 @@ uniform mat4 view;
 // perspective matrix applies perspective projection to the camera-relative coordinates, leaving them
 // in NDC/clip space coordinates that OpenGL uses
 uniform mat4 projection;
+
+// matrix that can be used to convert a given coordinate to be from the perspective of the direct light
+uniform mat4 directLightSpaceMatrix;
 
 void main() {
     fragWorldPos = (model * vec4(pos, 1.0)).xyz;
@@ -30,4 +34,5 @@ void main() {
     // matrix that is used on the verticies themselves but one that ignores translation and
     // correctly handles scaling (since those should behave differently when we're talking about normals)
     normalDirection = mat3(transpose(inverse(model))) * normal;
+    directLightSpacePos = directLightSpaceMatrix * model * vec4(pos, 1.0);
 }

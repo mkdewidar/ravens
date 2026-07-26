@@ -42,6 +42,7 @@ PhongShaderInput :: struct {
 
 DirectionalLight :: struct {
 	direction, color: [3]f32,
+	viewProjection: matrix[4, 4]f32,
 }
 
 PointLight :: struct {
@@ -75,6 +76,12 @@ phong_create :: proc(this: ^PhongShader, directLight: ^DirectionalLight, pointLi
 		1,
 		raw_data(&directLight.color),
 	)
+	gl.UniformMatrix4fv(
+		gl.GetUniformLocation(this.glProgram, "directLightSpaceMatrix"),
+		1,
+		false,
+		raw_data(&directLight.viewProjection),
+	)
 
 	gl.Uniform3fv(
 		gl.GetUniformLocation(this.glProgram, "pointLights[0].position"),
@@ -92,12 +99,16 @@ phong_create :: proc(this: ^PhongShader, directLight: ^DirectionalLight, pointLi
 }
 
 // to be called once in the beginning of the loop
-phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, viewPos: ^[3]f32, blinnEnabled: bool) {
+phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, viewPos: ^[3]f32, blinnEnabled: bool, glShadowMap: u32) {
 	gl.BindVertexArray(this.glVAO)
 
 	gl.UseProgram(this.glProgram)
 
 	gl.Enable(gl.DEPTH_TEST)
+
+	gl.ActiveTexture(gl.TEXTURE2)
+	gl.BindTexture(gl.TEXTURE_2D, glShadowMap)
+	gl.Uniform1i(gl.GetUniformLocation(this.glProgram, "directLight.shadowMapTex"), 2)
 
 	gl.UniformMatrix4fv(
 		gl.GetUniformLocation(this.glProgram, "view"),

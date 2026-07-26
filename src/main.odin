@@ -35,7 +35,9 @@ RENDER_HEIGHT :: WINDOW_HEIGHT
 
 MSAA_SAMPLE_COUNT :: 4
 
-CAMERA_DEFAULT_POS :: [?]f32{0, 0, 5}
+VIEW_DEPTH :: 100
+
+CAMERA_DEFAULT_POS :: [?]f32{0, 2, 5}
 CAMERA_DEFAULT_FRONT :: [?]f32{0, 0, -1}
 
 // the camera's location in the world
@@ -126,24 +128,40 @@ main :: proc() {
 
 	// A whole other framebuffer that is not multisampled, the multisampled one will get blitted into this
 	// one, essentially converting the multisampled framebuffer to a basic single-sample one for the post-processor
-	glAAFirstPassFramebuffer, glAAFirstPassColorBuffer, glAAFirstPassDepthBuffer: u32
-	gl.GenFramebuffers(1, &glAAFirstPassFramebuffer)
-	defer gl.DeleteFramebuffers(1, &glAAFirstPassFramebuffer)
-	gl.BindFramebuffer(gl.FRAMEBUFFER, glAAFirstPassFramebuffer)
+	glAntiAliasedFramebuffer, glAntiAliasedColorBuffer, glAntiAliasedDepthBuffer: u32
+	gl.GenFramebuffers(1, &glAntiAliasedFramebuffer)
+	defer gl.DeleteFramebuffers(1, &glAntiAliasedFramebuffer)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, glAntiAliasedFramebuffer)
 
-	gl.GenTextures(1, &glAAFirstPassColorBuffer)
-	defer gl.DeleteTextures(1, &glAAFirstPassColorBuffer)
-	gl.BindTexture(gl.TEXTURE_2D, glAAFirstPassColorBuffer)
+	gl.GenTextures(1, &glAntiAliasedColorBuffer)
+	defer gl.DeleteTextures(1, &glAntiAliasedColorBuffer)
+	gl.BindTexture(gl.TEXTURE_2D, glAntiAliasedColorBuffer)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, RENDER_WIDTH, RENDER_HEIGHT, 0, gl.RGB, gl.UNSIGNED_BYTE, nil)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, glAAFirstPassColorBuffer, 0)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, glAntiAliasedColorBuffer, 0)
 
-	gl.GenRenderbuffers(1, &glAAFirstPassDepthBuffer)
-	defer gl.DeleteRenderbuffers(1, &glAAFirstPassDepthBuffer)
-	gl.BindRenderbuffer(gl.RENDERBUFFER, glAAFirstPassDepthBuffer)
+	gl.GenRenderbuffers(1, &glAntiAliasedDepthBuffer)
+	defer gl.DeleteRenderbuffers(1, &glAntiAliasedDepthBuffer)
+	gl.BindRenderbuffer(gl.RENDERBUFFER, glAntiAliasedDepthBuffer)
 	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, RENDER_WIDTH, RENDER_HEIGHT)
-	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, glAAFirstPassDepthBuffer)
+	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, glAntiAliasedDepthBuffer)
+
+	// framebuffer used for creating the shadow map
+	glShadowMapFramebuffer, glShadowMapDepthBuffer: u32
+	gl.GenFramebuffers(1, &glShadowMapFramebuffer)
+	defer gl.DeleteFramebuffers(1, &glShadowMapFramebuffer)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, glShadowMapFramebuffer)
+
+	gl.GenTextures(1, &glShadowMapDepthBuffer)
+	defer gl.DeleteTextures(1, &glShadowMapDepthBuffer)
+	gl.BindTexture(gl.TEXTURE_2D, glShadowMapDepthBuffer)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, RENDER_WIDTH, RENDER_HEIGHT, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, glShadowMapDepthBuffer, 0)
+	gl.DrawBuffer(gl.NONE)
+	gl.ReadBuffer(gl.NONE)
 
 	// a map of gltf buffer pointers to gl buffer IDs
 	glBuffers := make(map[^cgltf.buffer]u32)
@@ -159,9 +177,16 @@ main :: proc() {
 
 	fmt.printfln("Initial camera parameters:\n\tpos: %v\n\tfront: %v\n\t", CameraPos, CameraFront)
 	directLight: DirectionalLight = {
-		direction = linalg.normalize([?]f32{ -1, -1, 0 }),
+		direction = linalg.normalize([?]f32{ 0, 0, 1 }),
 		color = [?]f32{ 1, 1, 1 },
 	}
+	directLight.viewProjection = linalg.matrix_ortho3d_f32(-10, 10, -10, 10, 1, VIEW_DEPTH) *
+		linalg.matrix4_look_at(
+			[?]f32{ 0, 0, 5 },
+			[?]f32{ 0, 0, 0 },
+			WORLD_UP,
+		)
+
 	pointLight: PointLight = {
 		position = [?]f32{ 0, 5, 0 },
 		color = [?]f32{ 0, 0, 1 },
@@ -187,6 +212,10 @@ main :: proc() {
 	ui_create(&uiShader)
 	defer ui_destroy(&uiShader)
 
+	shadowMapShader := ShadowMapShader{}
+	shadow_map_create(&shadowMapShader)
+	defer shadow_map_destroy(&shadowMapShader)
+
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
@@ -201,18 +230,46 @@ main :: proc() {
 
 		simulate(sceneData, &pointLight)
 
+		gl.Disable(gl.MULTISAMPLE)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, glShadowMapFramebuffer)
+		gl.Clear(gl.DEPTH_BUFFER_BIT)
+		shadow_map_pre_draw(&shadowMapShader, &directLight)
+		for node in sceneData.scene.nodes {
+			if node.mesh == nil {
+				// for now ignoring nested nodes, root ones only
+				continue
+			}
+
+			modelMatrix: matrix[4, 4]f32
+			if node.has_matrix {
+				// the order of elements in gltf is the same as the order that Odin stores matrices
+				modelMatrix = transmute(matrix[4, 4]f32)node.matrix_
+			} else {
+				modelMatrix = linalg.matrix4_from_trs(
+					node.has_translation ? node.translation : 0,
+					node.has_rotation ? transmute(quaternion128)node.rotation : linalg.QUATERNIONF32_IDENTITY,
+					node.has_scale ? node.scale : 1,
+				)
+			}
+
+			input := ShadowMapInput{}
+			fill_shadow_map_input(&glBuffers, &glTextures, &input, &node.mesh.primitives[0])
+			shadow_map_draw(&shadowMapShader, &modelMatrix, &input)
+		}
+		shadow_map_post_draw(&shadowMapShader)
+
 		projectionMatrix := linalg.matrix4_perspective_f32(
 			linalg.to_radians(f32(45)),
 			WINDOW_ASPECT_RATIO,
 			0.1,
-			100,
+			VIEW_DEPTH,
 		)
+
 		viewMatrix := linalg.matrix4_look_at(
 			CameraPos,
 			CameraPos + CameraFront,
 			WORLD_UP
 		)
-		modelMatrix: matrix[4, 4]f32
 
 		if (Settings.msaaEnabled) {
 			gl.Enable(gl.MULTISAMPLE)
@@ -233,13 +290,14 @@ main :: proc() {
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
-		phong_pre_draw(&phongShader, &viewMatrix, &projectionMatrix, &CameraPos, Settings.blinnEnabled)
+		phong_pre_draw(&phongShader, &viewMatrix, &projectionMatrix, &CameraPos, Settings.blinnEnabled, glShadowMapDepthBuffer)
 		for node in sceneData.scene.nodes {
 			if node.mesh == nil {
 				// for now ignoring nested nodes, root ones only
 				continue
 			}
 
+			modelMatrix: matrix[4, 4]f32
 			if node.has_matrix {
 				// the order of elements in gltf is the same as the order that Odin stores matrices
 				modelMatrix = transmute(matrix[4, 4]f32)node.matrix_
@@ -252,7 +310,7 @@ main :: proc() {
 			}
 
 			input := PhongShaderInput{}
-			fill_draw_input(&glBuffers, &glTextures, &input, &node.mesh.primitives[0])
+			fill_phong_input(&glBuffers, &glTextures, &input, &node.mesh.primitives[0])
 			phong_draw(&phongShader, &modelMatrix, &input)
 		}
 		phong_post_draw(&phongShader)
@@ -265,7 +323,7 @@ main :: proc() {
 		if (Settings.postProcessEffect != .None) {
 			// convert anti-aliased buffer down to single-sampled one
 			gl.BindFramebuffer(gl.READ_FRAMEBUFFER, glFirstPassFramebuffer)
-			gl.BindFramebuffer(gl.DRAW_FRAMEBUFFER, glAAFirstPassFramebuffer)
+			gl.BindFramebuffer(gl.DRAW_FRAMEBUFFER, glAntiAliasedFramebuffer)
 			gl.BlitFramebuffer(0, 0, RENDER_WIDTH, RENDER_HEIGHT, 0, 0, RENDER_WIDTH, RENDER_HEIGHT, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST)
 
 			// post processing
@@ -275,7 +333,7 @@ main :: proc() {
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 			post_process_pre_draw(&postProcessShader, Settings.postProcessEffect)
-			post_process_draw(&postProcessShader, glAAFirstPassColorBuffer, {-1, -1, 2, 2})
+			post_process_draw(&postProcessShader, glAntiAliasedColorBuffer, {-1, -1, 2, 2})
 			post_process_post_draw(&postProcessShader)
 		}
 
@@ -615,7 +673,7 @@ load_cubemap :: proc(gltfPath, right, left, top, bottom, front, back: string) ->
     return glCubemap
 }
 
-fill_draw_input :: proc(glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgltf.texture]u32, input: ^PhongShaderInput, primitive: ^cgltf.primitive) {
+fill_phong_input :: proc(glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgltf.texture]u32, input: ^PhongShaderInput, primitive: ^cgltf.primitive) {
 	for attribute in primitive.attributes {
 		#partial switch attribute.type {
 		case .position: {
@@ -683,6 +741,35 @@ fill_draw_input :: proc(glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgl
 			if specularTexture := material.pbr_specular_glossiness.specular_glossiness_texture.texture; specularTexture != nil {
 				input.material.glSpecularTexture = glTextures[specularTexture]
 			}
+		}
+	}
+}
+
+fill_shadow_map_input :: proc(glBuffers: ^map[^cgltf.buffer]u32, glTextures: ^map[^cgltf.texture]u32, input: ^ShadowMapInput, primitive: ^cgltf.primitive) {
+	for attribute in primitive.attributes {
+		#partial switch attribute.type {
+		case .position: {
+			if primitive.indices != nil {
+				input.elementCount = u32(primitive.indices.count)
+
+				input.indices = BufferView {
+					glBuffer = glBuffers[primitive.indices.buffer_view.buffer],
+					// right now the only component types I'm supporting, will change this to proper mapping later
+					glComponentType = primitive.indices.component_type == .r_16u ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT,
+					stride = i32(primitive.indices.stride),
+					offset = primitive.indices.offset + primitive.indices.buffer_view.offset,
+				}
+			} else {
+				input.elementCount = u32(attribute.data.count)
+			}
+
+			input.positions = BufferView {
+				glBuffer = glBuffers[attribute.data.buffer_view.buffer],
+				glComponentType = gl.FLOAT,
+				stride = i32(attribute.data.stride),
+				offset = attribute.data.offset + attribute.data.buffer_view.offset,
+			}
+		}
 		}
 	}
 }

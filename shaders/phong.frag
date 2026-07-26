@@ -122,12 +122,19 @@ float shadowFactor(DirectionalLight dLight, vec3 lightSpacePos, vec3 normal) {
     // converts the position to 0-1 range which is used for texture lookups
     vec3 depthMapCoordinates = (lightSpacePos.xyz * 0.5) + 0.5;
 
-    float closestDepth = texture(dLight.shadowMapTex, depthMapCoordinates.xy).r;
-    float currentDepth = depthMapCoordinates.z;
-
     float shadowBias = max(0.05 * (1.0 - dot(normal, dLight.direction)), 0.005);
-    // 1 if in shadow, 0 if not
-    return closestDepth > (currentDepth - shadowBias) ? 0.0 : 1.0;
+    float shadowFactor = 0.0;
+    vec2 texelSize = 1.0 / textureSize(dLight.shadowMapTex, 0);
+    for (int u = -1; u <= 1; ++u) {
+        for (int v = -1; v <= 1; ++v) {
+            float closestDepth = texture(dLight.shadowMapTex, depthMapCoordinates.xy + vec2(u, v) * texelSize).r;
+            float currentDepth = depthMapCoordinates.z;
+
+            // 1 if in shadow, 0 if not
+            shadowFactor += closestDepth > (currentDepth - shadowBias) ? 0.0 : 1.0;
+        }
+    }
+    return shadowFactor /= 9.0;
 }
 
 void main() {

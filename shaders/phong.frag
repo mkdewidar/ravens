@@ -92,11 +92,14 @@ vec3 specularColor(vec3 normal, vec3 lightDirection, vec3 lightColor, vec3 curre
     return specularColor;
 }
 
-vec4 colorUnderDirectionalLight(Material material, DirectionalLight dirLight, vec3 normal) {
+vec4 colorUnderDirectionalLight(Material material, DirectionalLight dirLight, vec4 lightSpacePos, vec3 normal) {
     vec3 diffuseColor = diffuseColor(normal, dirLight.direction, dirLight.color, material, texCoordinates);
     vec3 specularColor = specularColor(normal, dirLight.direction, dirLight.color, viewPos, fragWorldPos, material, texCoordinates);
 
-    return vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);
+    vec3 rawColor = vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);
+
+    // perspective divide for the light-relative pos since that wouldn't have been done for us
+    return rawColor * (1 - shadowFactor(dirLight, lightSpacePos.xyz / lightSpacePos.w, normal))
 }
 
 vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
@@ -142,12 +145,9 @@ void main() {
     // necessarily maintain the length of the vector
     vec3 normal = normalize(normalDirection);
 
-    fragColor = colorUnderDirectionalLight(objectMaterial, directLight, normal);
+    fragColor = colorUnderDirectionalLight(objectMaterial, directLight, directLightSpacePos, normal);
 
     for (int i = 0; i < POINT_LIGHTS_COUNT; i++) {
         fragColor += colorUnderPointLight(objectMaterial, pointLights[i], normal);
     }
-
-    // perspective divide for the light-relative pos since that wouldn't have been done for us
-    fragColor *= (1 - shadowFactor(directLight, directLightSpacePos.xyz / directLightSpacePos.w, normal));
 }

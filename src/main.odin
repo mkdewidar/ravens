@@ -30,8 +30,13 @@ WINDOW_WIDTH :: 640
 WINDOW_HEIGHT :: 480
 WINDOW_ASPECT_RATIO :: WINDOW_WIDTH / WINDOW_HEIGHT
 
-RENDER_WIDTH :: WINDOW_WIDTH
-RENDER_HEIGHT :: WINDOW_HEIGHT
+DEFAULT_RENDER_WIDTH :: WINDOW_WIDTH
+DEFAULT_RENDER_HEIGHT :: WINDOW_HEIGHT
+
+ViewportWidth : i32 = DEFAULT_RENDER_WIDTH
+ViewportHeight : i32 = DEFAULT_RENDER_HEIGHT
+
+SHADOWMAP_SIZE :: 640
 
 MSAA_SAMPLE_COUNT :: 4
 
@@ -117,13 +122,13 @@ main :: proc() {
 	gl.GenTextures(1, &glFirstPassColorBuffer)
 	defer gl.DeleteTextures(1, &glFirstPassColorBuffer)
 	gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, glFirstPassColorBuffer)
-	gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, MSAA_SAMPLE_COUNT, gl.RGB, RENDER_WIDTH, RENDER_HEIGHT, true)
+	gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, MSAA_SAMPLE_COUNT, gl.RGB, DEFAULT_RENDER_WIDTH, DEFAULT_RENDER_HEIGHT, true)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D_MULTISAMPLE, glFirstPassColorBuffer, 0)
 
 	gl.GenRenderbuffers(1, &glFirstPassDepthBuffer)
 	defer gl.DeleteRenderbuffers(1, &glFirstPassDepthBuffer)
 	gl.BindRenderbuffer(gl.RENDERBUFFER, glFirstPassDepthBuffer)
-	gl.RenderbufferStorageMultisample(gl.RENDERBUFFER, MSAA_SAMPLE_COUNT, gl.DEPTH24_STENCIL8, RENDER_WIDTH, RENDER_HEIGHT)
+	gl.RenderbufferStorageMultisample(gl.RENDERBUFFER, MSAA_SAMPLE_COUNT, gl.DEPTH24_STENCIL8, DEFAULT_RENDER_WIDTH, DEFAULT_RENDER_HEIGHT)
 	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, glFirstPassDepthBuffer)
 
 	// A whole other framebuffer that is not multisampled, the multisampled one will get blitted into this
@@ -136,7 +141,7 @@ main :: proc() {
 	gl.GenTextures(1, &glAntiAliasedColorBuffer)
 	defer gl.DeleteTextures(1, &glAntiAliasedColorBuffer)
 	gl.BindTexture(gl.TEXTURE_2D, glAntiAliasedColorBuffer)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, RENDER_WIDTH, RENDER_HEIGHT, 0, gl.RGB, gl.UNSIGNED_BYTE, nil)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, DEFAULT_RENDER_WIDTH, DEFAULT_RENDER_HEIGHT, 0, gl.RGB, gl.UNSIGNED_BYTE, nil)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, glAntiAliasedColorBuffer, 0)
@@ -144,7 +149,7 @@ main :: proc() {
 	gl.GenRenderbuffers(1, &glAntiAliasedDepthBuffer)
 	defer gl.DeleteRenderbuffers(1, &glAntiAliasedDepthBuffer)
 	gl.BindRenderbuffer(gl.RENDERBUFFER, glAntiAliasedDepthBuffer)
-	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, RENDER_WIDTH, RENDER_HEIGHT)
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, DEFAULT_RENDER_WIDTH, DEFAULT_RENDER_HEIGHT)
 	gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, glAntiAliasedDepthBuffer)
 
 	// framebuffer used for creating the shadow map
@@ -156,11 +161,30 @@ main :: proc() {
 	gl.GenTextures(1, &glShadowMapDepthBuffer)
 	defer gl.DeleteTextures(1, &glShadowMapDepthBuffer)
 	gl.BindTexture(gl.TEXTURE_2D, glShadowMapDepthBuffer)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, RENDER_WIDTH, RENDER_HEIGHT, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_BYTE, nil)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, SHADOWMAP_SIZE, SHADOWMAP_SIZE, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_BYTE, nil)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, glShadowMapDepthBuffer, 0)
 	gl.DrawBuffer(gl.NONE)
+	gl.ReadBuffer(gl.NONE)
+
+	// framebuffer used for creating the shadow cubemap
+	glShadowCubeMapFramebuffer, glShadowCubeMapDepthBuffer: u32
+	gl.GenFramebuffers(1, &glShadowCubeMapFramebuffer)
+	defer gl.DeleteFramebuffers(1, &glShadowCubeMapFramebuffer)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, glShadowCubeMapFramebuffer)
+
+	gl.GenTextures(1, &glShadowCubeMapDepthBuffer)
+	defer gl.DeleteTextures(1, &glShadowCubeMapDepthBuffer)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, glShadowCubeMapDepthBuffer)
+	for i in 0..<6 {
+		// its a cube so width and height are the same
+		gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(i), 0, gl.DEPTH_COMPONENT, SHADOWMAP_SIZE, SHADOWMAP_SIZE, 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+	}
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.FramebufferTexture(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, glShadowCubeMapDepthBuffer, 0)
+    gl.DrawBuffer(gl.NONE)
 	gl.ReadBuffer(gl.NONE)
 
 	// a map of gltf buffer pointers to gl buffer IDs
@@ -193,6 +217,7 @@ main :: proc() {
 		constantAttenuation = 1.0,
 		linearAttenuation = 0.07,
 		quadraticAttenuation = 0.017,
+		shadowFarPlane = VIEW_DEPTH,
 	}
 	fmt.printfln("Light parameters: \n\t%v, \n\t%v", directLight, pointLight)
 
@@ -216,6 +241,10 @@ main :: proc() {
 	shadow_map_create(&shadowMapShader)
 	defer shadow_map_destroy(&shadowMapShader)
 
+	shadowCubeMapShader := ShadowCubeMapShader{}
+	shadow_cubemap_create(&shadowCubeMapShader)
+	defer shadow_cubemap_destroy(&shadowCubeMapShader)
+
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
@@ -232,6 +261,7 @@ main :: proc() {
 
 		gl.Disable(gl.MULTISAMPLE)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, glShadowMapFramebuffer)
+		gl.Viewport(0, 0, SHADOWMAP_SIZE, SHADOWMAP_SIZE)
 		gl.Clear(gl.DEPTH_BUFFER_BIT)
 		shadow_map_pre_draw(&shadowMapShader, &directLight)
 		for node in sceneData.scene.nodes {
@@ -258,6 +288,34 @@ main :: proc() {
 		}
 		shadow_map_post_draw(&shadowMapShader)
 
+		gl.BindFramebuffer(gl.FRAMEBUFFER, glShadowCubeMapFramebuffer)
+		gl.Viewport(0, 0, SHADOWMAP_SIZE, SHADOWMAP_SIZE)
+		gl.Clear(gl.DEPTH_BUFFER_BIT)
+		shadow_cubemap_pre_draw(&shadowCubeMapShader, &pointLight)
+		for node in sceneData.scene.nodes {
+			if node.mesh == nil {
+				// for now ignoring nested nodes, root ones only
+				continue
+			}
+
+			modelMatrix: matrix[4, 4]f32
+			if node.has_matrix {
+				// the order of elements in gltf is the same as the order that Odin stores matrices
+				modelMatrix = transmute(matrix[4, 4]f32)node.matrix_
+			} else {
+				modelMatrix = linalg.matrix4_from_trs(
+					node.has_translation ? node.translation : 0,
+					node.has_rotation ? transmute(quaternion128)node.rotation : linalg.QUATERNIONF32_IDENTITY,
+					node.has_scale ? node.scale : 1,
+				)
+			}
+
+			input := ShadowMapInput{}
+			fill_shadow_map_input(&glBuffers, &glTextures, &input, &node.mesh.primitives[0])
+			shadow_cubemap_draw(&shadowCubeMapShader, &modelMatrix, &input)
+		}
+		shadow_cubemap_post_draw(&shadowCubeMapShader)
+
 		projectionMatrix := linalg.matrix4_perspective_f32(
 			linalg.to_radians(f32(45)),
 			WINDOW_ASPECT_RATIO,
@@ -279,10 +337,12 @@ main :: proc() {
 
 		if (Settings.postProcessEffect != .None) {
 			gl.BindFramebuffer(gl.FRAMEBUFFER, glFirstPassFramebuffer)
+			gl.Viewport(0, 0, ViewportWidth, ViewportHeight)
 
 			gl.Enable(gl.FRAMEBUFFER_SRGB)
 		} else {
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+			gl.Viewport(0, 0, ViewportWidth, ViewportHeight)
 
 			gl.Disable(gl.FRAMEBUFFER_SRGB)
 		}
@@ -290,7 +350,7 @@ main :: proc() {
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		gl.PolygonMode(gl.FRONT_AND_BACK, Settings.wireframeModeEnabled ? gl.LINE : gl.FILL)
-		phong_pre_draw(&phongShader, &viewMatrix, &projectionMatrix, &CameraPos, Settings.blinnEnabled, glShadowMapDepthBuffer)
+		phong_pre_draw(&phongShader, &viewMatrix, &projectionMatrix, &CameraPos, Settings.blinnEnabled, glShadowMapDepthBuffer, glShadowCubeMapDepthBuffer)
 		for node in sceneData.scene.nodes {
 			if node.mesh == nil {
 				// for now ignoring nested nodes, root ones only
@@ -324,7 +384,7 @@ main :: proc() {
 			// convert anti-aliased buffer down to single-sampled one
 			gl.BindFramebuffer(gl.READ_FRAMEBUFFER, glFirstPassFramebuffer)
 			gl.BindFramebuffer(gl.DRAW_FRAMEBUFFER, glAntiAliasedFramebuffer)
-			gl.BlitFramebuffer(0, 0, RENDER_WIDTH, RENDER_HEIGHT, 0, 0, RENDER_WIDTH, RENDER_HEIGHT, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST)
+			gl.BlitFramebuffer(0, 0, DEFAULT_RENDER_WIDTH, DEFAULT_RENDER_HEIGHT, 0, 0, DEFAULT_RENDER_WIDTH, DEFAULT_RENDER_HEIGHT, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST)
 
 			// post processing
 			gl.Enable(gl.FRAMEBUFFER_SRGB)
@@ -403,7 +463,8 @@ Callback that glfw uses to keep OpenGL's viewport size up to date with the windo
 */
 @(private = "file")
 framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: c.int) {
-	gl.Viewport(0, 0, width, height)
+	ViewportWidth = i32(width)
+	ViewportHeight = i32(height)
 }
 
 @(private = "file")

@@ -23,6 +23,9 @@ struct PointLight {
     float constantAttenuation;
     float linearAttenuation;
     float quadraticAttenuation;
+
+    samplerCube shadowCubeMapTex;
+    float shadowFarPlane;
 };
 #define POINT_LIGHTS_COUNT 1
 uniform PointLight[POINT_LIGHTS_COUNT] pointLights;
@@ -92,14 +95,62 @@ vec3 specularColor(vec3 normal, vec3 lightDirection, vec3 lightColor, vec3 curre
     return specularColor;
 }
 
+float directionalLightShadowFactor(DirectionalLight dLight, vec4 lightSpacePos, vec3 normal) {
+    vec3 perspectiveLightSpacePos = lightSpacePos.xyz / lightSpacePos.w;
+
+    // converts the position to 0-1 range which is used for texture lookups
+    vec3 depthMapCoordinates = (perspectiveLightSpacePos.xyz * 0.5) + 0.5;
+
+    float shadowBias = max(0.05 * (1.0 - dot(normal, dLight.direction)), 0.005);
+    float shadowFactor = 0.0;
+    vec2 texelSize = 1.0 / textureSize(dLight.shadowMapTex, 0);
+    for (int u = -1; u <= 1; ++u) {
+        for (int v = -1; v <= 1; ++v) {
+            float closestDepth = texture(dLight.shadowMapTex, depthMapCoordinates.xy + vec2(u, v) * texelSize).r;
+            float currentDepth = depthMapCoordinates.z;
+
+            // 1 if in shadow, 0 if not
+            shadowFactor += closestDepth > (currentDepth - shadowBias) ? 0.0 : 1.0;
+        }
+    }
+    return shadowFactor /= 9.0;
+}
+
 vec4 colorUnderDirectionalLight(Material material, DirectionalLight dirLight, vec4 lightSpacePos, vec3 normal) {
     vec3 diffuseColor = diffuseColor(normal, dirLight.direction, dirLight.color, material, texCoordinates);
     vec3 specularColor = specularColor(normal, dirLight.direction, dirLight.color, viewPos, fragWorldPos, material, texCoordinates);
 
-    vec3 rawColor = vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);
+    vec4 rawColor = vec4(vertColor * (material.emissiveColor + diffuseColor + specularColor), 1.0);
 
     // perspective divide for the light-relative pos since that wouldn't have been done for us
-    return rawColor * (1 - shadowFactor(dirLight, lightSpacePos.xyz / lightSpacePos.w, normal))
+    return rawColor * (1 - directionalLightShadowFactor(dirLight, lightSpacePos, normal));
+}
+
+float pointLightShadowFactor(PointLight pLight, vec3 normal) {
+    // the cubemap is centered around the light, so vectors we use to lookup should be from the light outwards
+    vec3 lightToFragment = fragWorldPos - pLight.position;
+
+    float shadowBias = max(0.05 * (1.0 - dot(normal, normalize(lightToFragment))), 0.005);
+    float shadowFactor = 0.0;
+
+    // to achieve Percentage Closer Filtering (PCF) in this case, we hardcode a bunch of offsets from the base
+    // "light to fragment" vector, that gives us a good representation of the shadow situation around the fragment
+    vec3 sampleOffsetDirections[20] = vec3[]
+    (
+       vec3( 0.05,  0.05,  0.05), vec3( 0.05, -0.05,  0.05), vec3(-0.05, -0.05,  0.05), vec3(-0.05,  0.05,  0.05),
+       vec3( 0.05,  0.05, -0.05), vec3( 0.05, -0.05, -0.05), vec3(-0.05, -0.05, -0.05), vec3(-0.05,  0.05, -0.05),
+       vec3( 0.05,  0.05,  0), vec3( 0.05, -0.05,  0), vec3(-0.05, -0.05,  0), vec3(-0.05,  0.05,  0),
+       vec3( 0.05,  0,  0.05), vec3(-0.05,  0,  0.05), vec3( 0.05,  0, -0.05), vec3(-0.05,  0, -0.05),
+       vec3( 0,  0.05,  0.05), vec3( 0, -0.05,  0.05), vec3( 0, -0.05, -0.05), vec3( 0,  0.05, -0.05)
+    );
+    for (int i = 0; i < 20; i++) {
+        float closestDepth = texture(pLight.shadowCubeMapTex, lightToFragment + sampleOffsetDirections[i]).r * pLight.shadowFarPlane;
+        float currentDepth = length(lightToFragment);
+
+        // 1 if in shadow, 0 if not
+        shadowFactor += closestDepth > (currentDepth - shadowBias) ? 0.0 : 1.0;
+    }
+    return shadowFactor /= 20;
 }
 
 vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
@@ -118,26 +169,9 @@ vec4 colorUnderPointLight(Material material, PointLight pLight, vec3 normal) {
             (pLight.quadraticAttenuation * pow(length(fragmentToLight), 2)));
     }
 
-    return vec4(vertColor * attenuation * (material.emissiveColor + diffuseColor + specularColor), 1.0);
-}
+    vec4 rawColor = vec4(vertColor * attenuation * (material.emissiveColor + diffuseColor + specularColor), 1.0);
 
-float shadowFactor(DirectionalLight dLight, vec3 lightSpacePos, vec3 normal) {
-    // converts the position to 0-1 range which is used for texture lookups
-    vec3 depthMapCoordinates = (lightSpacePos.xyz * 0.5) + 0.5;
-
-    float shadowBias = max(0.05 * (1.0 - dot(normal, dLight.direction)), 0.005);
-    float shadowFactor = 0.0;
-    vec2 texelSize = 1.0 / textureSize(dLight.shadowMapTex, 0);
-    for (int u = -1; u <= 1; ++u) {
-        for (int v = -1; v <= 1; ++v) {
-            float closestDepth = texture(dLight.shadowMapTex, depthMapCoordinates.xy + vec2(u, v) * texelSize).r;
-            float currentDepth = depthMapCoordinates.z;
-
-            // 1 if in shadow, 0 if not
-            shadowFactor += closestDepth > (currentDepth - shadowBias) ? 0.0 : 1.0;
-        }
-    }
-    return shadowFactor /= 9.0;
+    return rawColor * (1 - pointLightShadowFactor(pLight, normal));
 }
 
 void main() {

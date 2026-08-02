@@ -48,6 +48,7 @@ DirectionalLight :: struct {
 PointLight :: struct {
 	position, color: [3]f32,
 	constantAttenuation, linearAttenuation, quadraticAttenuation: f32,
+	shadowFarPlane: f32,
 }
 
 // loads and compiles the shader
@@ -96,10 +97,11 @@ phong_create :: proc(this: ^PhongShader, directLight: ^DirectionalLight, pointLi
     gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].constantAttenuation"), pointLight.constantAttenuation)
     gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].linearAttenuation"), pointLight.linearAttenuation)
     gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].quadraticAttenuation"), pointLight.quadraticAttenuation)
+    gl.Uniform1f(gl.GetUniformLocation(this.glProgram, "pointLights[0].shadowFarPlane"), pointLight.shadowFarPlane)
 }
 
 // to be called once in the beginning of the loop
-phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, viewPos: ^[3]f32, blinnEnabled: bool, glShadowMap: u32) {
+phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, viewPos: ^[3]f32, blinnEnabled: bool, glShadowMap: u32, glShadowCubeMap: u32) {
 	gl.BindVertexArray(this.glVAO)
 
 	gl.UseProgram(this.glProgram)
@@ -109,6 +111,10 @@ phong_pre_draw :: proc(this: ^PhongShader, view, projection: ^matrix[4, 4]f32, v
 	gl.ActiveTexture(gl.TEXTURE2)
 	gl.BindTexture(gl.TEXTURE_2D, glShadowMap)
 	gl.Uniform1i(gl.GetUniformLocation(this.glProgram, "directLight.shadowMapTex"), 2)
+
+	gl.ActiveTexture(gl.TEXTURE3)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, glShadowCubeMap)
+	gl.Uniform1i(gl.GetUniformLocation(this.glProgram, "pointLights[0].shadowCubeMapTex"), 3)
 
 	gl.UniformMatrix4fv(
 		gl.GetUniformLocation(this.glProgram, "view"),
